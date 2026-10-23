@@ -1,0 +1,43 @@
+plugins {
+    id 'com.android.application'
+}
+
+// GitHub rellena esto solo al compilar: la app leerá el config.json de TU repositorio
+def repo   = System.getenv("GITHUB_REPOSITORY") ?: "TU_USUARIO/TU_REPO"
+def branch = System.getenv("GITHUB_REF_NAME") ?: "main"
+def build  = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+
+android {
+    namespace 'com.mivisor.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.mivisor.app"
+        minSdk 26
+        targetSdk 35
+        versionCode build
+        versionName "1.${build}"
+        buildConfigField "String", "API_URL", "\"https://api.github.com/repos/${repo}/contents/config.json?ref=${branch}\""
+        buildConfigField "String", "RAW_URL", "\"https://raw.githubusercontent.com/${repo}/${branch}/config.json\""
+    }
+
+    buildFeatures { buildConfig true }
+
+    // Clave fija para que las versiones nuevas se instalen encima sin desinstalar
+    signingConfigs {
+        debug {
+            storeFile file("debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+    buildTypes {
+        debug { signingConfig signingConfigs.debug }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

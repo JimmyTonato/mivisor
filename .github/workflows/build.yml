@@ -1,0 +1,39 @@
+name: Generar APK
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['config.json', 'README.md']   # cambiar el link NO recompila
+  workflow_dispatch:                               # botón manual "Run workflow"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Compilar
+        run: gradle assembleDebug --no-daemon
+
+      - name: Renombrar APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk MiVisor.apk
+
+      - name: Publicar en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Mi Visor v1.${{ github.run_number }}
+          files: MiVisor.apk
+          make_latest: true
