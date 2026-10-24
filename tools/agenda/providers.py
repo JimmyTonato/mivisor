@@ -325,9 +325,14 @@ class LiveTennis(Provider):
         start = parse_instant(first(item, "start_time", "scheduled_time", "startTime", "scheduled_at", "start"))
         if start is None:                                  # sin hora asignada en el orden de juego
             return None
+        round_name = clean_round(clean(first(item, "round")))
+        if QUALIFYING_ROUND.search(round_name):            # partidos de la previa: fuera
+            return None
+        # La API a veces etiqueta el torneo como "… - Qualification" aunque la ronda sea del cuadro
+        # principal (p. ej. semifinales): se quita esa coletilla de la etiqueta.
+        tournament = re.sub(r"\s*-\s*qualifi\w*$", "", tournament, flags=re.IGNORECASE)
         tour_label = tour.upper()
         competition = tournament if tournament.upper().startswith(tour_label) else f"{tour_label} · {tournament}".strip(" ·")
-        round_name = clean(first(item, "round"))
         if round_name:
             competition = f"{competition} · {round_name}"
         return Event(
@@ -352,6 +357,16 @@ class LiveTennis(Provider):
         if isinstance(players, list) and len(players) >= 2:
             return name_of(players[0]), name_of(players[1])
         return name_of(item.get("player1")), name_of(item.get("player2"))
+
+
+QUALIFYING_ROUND = re.compile(r"qualif|qualies|^q\d\b|previa", re.IGNORECASE)
+
+
+def clean_round(round_name: str) -> str:
+    """"ATP Vienna - Semi-finals" → "Semi-finals" (el torneo ya aparece en la etiqueta)."""
+    if " - " in round_name:
+        return round_name.rsplit(" - ", 1)[1].strip()
+    return round_name
 
 
 # --------------------------------------------------------------------------------------------

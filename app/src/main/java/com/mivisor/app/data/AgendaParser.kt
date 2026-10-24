@@ -82,7 +82,8 @@ object AgendaParser {
             channels = channels,
             homeLogo = o.str("homeLogo"),
             awayLogo = o.str("awayLogo"),
-            competitionLogo = o.str("competitionLogo")
+            competitionLogo = o.str("competitionLogo"),
+            tvId = o.str("tvId")
         )
     }
 

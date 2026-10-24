@@ -187,12 +187,7 @@ private fun EventList(
                 ui.error != null && ui.agenda == null -> Message("No se pudo cargar la agenda", ui.error) {
                     NeonButton("Reintentar", { vm.load(force = true) }, icon = R.drawable.ic_refresh)
                 }
-                ui.visible.isEmpty() -> Message(
-                    if (ui.day == DayFilter.LIVE) "Nada en directo ahora mismo" else "No hay eventos",
-                    if (ui.sport != null && ui.agenda?.problems?.get(ui.sport) == SourceStatus.UNAVAILABLE)
-                        sourceNoticeText(sportInSentence(ui.sport), SourceStatus.UNAVAILABLE)
-                    else "Prueba con otro día, otra franja horaria u otro deporte."
-                ) {}
+                ui.visible.isEmpty() -> Message(emptyTitle(ui), emptyDetail(ui)) {}
                 else -> LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().focusRestorer(),
@@ -233,8 +228,36 @@ private fun statusLine(ui: AgendaUi): String {
     else "Actualizado $updated · fuente: ${agenda.source}"
 }
 
+/** Categorías: también las que hoy no tienen eventos (MotoGP sin carrera sigue apareciendo). */
 private fun sportsOf(ui: AgendaUi) =
-    ui.agenda?.sports?.takeIf { it.isNotEmpty() } ?: listOf("futbol", "tenis", "formula1", "motogp")
+    ui.agenda?.categories?.takeIf { it.isNotEmpty() } ?: listOf("futbol", "tenis", "formula1", "motogp")
+
+/** "No hay eventos de MotoGP para hoy" / "…de LaLiga para mañana"… */
+private fun emptyTitle(ui: AgendaUi): String {
+    val what = ui.subOptions.firstOrNull { it.key != null && it.key == ui.subKey }?.label
+        ?: ui.sport?.let(::sportLabel)
+    val period = when (ui.day) {
+        DayFilter.TODAY -> "para hoy"
+        DayFilter.TOMORROW -> "para mañana"
+        DayFilter.LIVE -> "en directo ahora"
+        DayFilter.NEXT -> "en los próximos días"
+    }
+    return if (what == null) {
+        if (ui.day == DayFilter.LIVE) "Nada en directo ahora mismo" else "No hay eventos $period"
+    } else "No hay eventos de $what $period"
+}
+
+private fun emptyDetail(ui: AgendaUi): String {
+    val sport = ui.sport ?: return "Prueba con otro día, otra franja horaria u otro deporte."
+    val agenda = ui.agenda
+    return when {
+        agenda?.problems?.get(sport) == SourceStatus.UNAVAILABLE ->
+            sourceNoticeText(sportInSentence(sport), SourceStatus.UNAVAILABLE)
+        agenda != null && agenda.eventCount(sport) == 0 ->
+            "No hay eventos de ${sportLabel(sport)} en los próximos 14 días. Aparecerán aquí en cuanto haya."
+        else -> "Prueba con otro día u otra franja horaria."
+    }
+}
 
 private val DAYS = listOf(DayFilter.TODAY, DayFilter.TOMORROW, DayFilter.LIVE, DayFilter.NEXT)
 

@@ -12,8 +12,10 @@ import com.mivisor.app.data.RawCache
 import com.mivisor.app.data.SourceStore
 import com.mivisor.app.data.StreamRepository
 import com.mivisor.app.data.StreamRepository.Mode
+import com.mivisor.app.data.TvChannelsRepository
 import com.mivisor.app.data.sharedGson
 import com.mivisor.app.model.Agenda
+import com.mivisor.app.model.AgendaChannel
 import com.mivisor.app.model.AgendaEvent
 import com.mivisor.app.model.AgendaFilters
 import com.mivisor.app.model.SubFilterOption
@@ -67,17 +69,28 @@ data class AgendaUi(
     val liveCount: Int = 0,
     /** Nombre de canal de la agenda → tus canales equivalentes. */
     val links: Map<String, List<Channel>> = emptyMap(),
-    val indexedChannels: Int = 0
+    val indexedChannels: Int = 0,
+    /** Canales pedidos a TheSportsDB al abrir un partido (id del evento → canales). */
+    val tvChannels: Map<String, List<AgendaChannel>> = emptyMap(),
+    /** Partidos cuyos canales se están pidiendo ahora mismo. */
+    val tvLoading: Set<String> = emptySet(),
+    /** Partidos cuya consulta de canales falló (sin red, límite…): se reintenta al volver a abrirlos. */
+    val tvFailed: Set<String> = emptySet()
 ) {
+    /** Canales del partido: los de agenda.json o, si no trae, los pedidos al abrirlo. */
+    fun channelsOf(event: AgendaEvent): List<AgendaChannel> =
+        event.channels.ifEmpty { tvChannels[event.id].orEmpty() }
+
     /** Opciones reales (enlaces distintos) entre todos los canales que emiten [event]. */
     fun optionCount(event: AgendaEvent): Int =
-        event.channels.flatMap { links[it.name].orEmpty() }.distinctBy { it.url }.size
+        channelsOf(event).flatMap { links[it.name].orEmpty() }.distinctBy { it.url }.size
 }
 
 class AgendaViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = AgendaRepository(File(application.cacheDir, "agenda"))
     private val prefs = PlayerPreferences(application)
     private val sourceStore = SourceStore(application)
+    private val tvRepository = TvChannelsRepository(File(application.cacheDir, "agenda"))
     // Misma caché que el catálogo: el índice de canales se construye sin red si ya abriste las categorías.
     private val streams = StreamRepository(
         resolver = CompositeDnsResolver(),
@@ -143,6 +156,34 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
 
     fun linksFor(channelName: String): List<Channel> = _ui.value.links[channelName].orEmpty()
 
+    /**
+     * Al abrir un partido: si no trae canales, se piden a TheSportsDB UNA vez y se guardan.
+     * Si ya los tiene (de agenda.json o de una consulta anterior) no se hace ninguna llamada.
+     */
+    fun requestChannels(event: AgendaEvent) {
+        val state = _ui.value
+        if (event.channels.isNotEmpty() || event.tvId == null) return
+        if (event.id in state.tvChannels || event.id in state.tvLoading) return
+        tvRepository.known(event)?.let { known ->
+            _ui.update { it.copy(tvChannels = it.tvChannels + (event.id to known)) }
+            viewModelScope.launch { recompute() }
+            return
+        }
+        _ui.update { it.copy(tvLoading = it.tvLoading + event.id, tvFailed = it.tvFailed - event.id) }
+        viewModelScope.launch {
+            val result = tvRepository.channelsFor(event)
+            _ui.update {
+                it.copy(
+                    tvLoading = it.tvLoading - event.id,
+                    // Un fallo no se guarda: al volver a abrir el partido se reintenta.
+                    tvChannels = if (result.failed) it.tvChannels else it.tvChannels + (event.id to result.channels),
+                    tvFailed = if (result.failed) it.tvFailed + event.id else it.tvFailed
+                )
+            }
+            recompute()
+        }
+    }
+
     /** Otros eventos de hoy para la columna "Más partidos de hoy" del detalle. */
     fun moreToday(excludeId: String, max: Int = 3): List<AgendaEvent> {
         val agenda = _ui.value.agenda ?: return emptyList()
@@ -188,7 +229,7 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
                 .sortedWith(compareBy<AgendaEvent>({ if (it.status(now) == EventStatus.LIVE) 0 else 1 }, { -priority(it) }, { it.startMillis }))
                 .take(3)
             Computed(
-                visible, featured, agenda.events.count { it.status(now) == EventStatus.LIVE }, buildLinks(agenda),
+                visible, featured, agenda.events.count { it.status(now) == EventStatus.LIVE }, buildLinks(agenda, state.tvChannels),
                 subOptions, subKey
             )
         }
@@ -215,9 +256,10 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
         return PRIORITY.entries.firstOrNull { (key, _) -> key in text }?.value ?: 0
     }
 
-    private fun buildLinks(agenda: Agenda): Map<String, List<Channel>> {
+    private fun buildLinks(agenda: Agenda, tvChannels: Map<String, List<AgendaChannel>>): Map<String, List<Channel>> {
         if (matcher.isEmpty) return emptyMap()
-        val names = agenda.events.asSequence().flatMap { it.channels.asSequence() }.map { it.name }.toSet()
+        val names = (agenda.events.asSequence().flatMap { it.channels.asSequence() } +
+            tvChannels.values.asSequence().flatten()).map { it.name }.toSet()
         return names.associateWith { matcher.match(it) }.filterValues { it.isNotEmpty() }
     }
 

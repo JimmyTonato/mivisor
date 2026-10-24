@@ -8,7 +8,7 @@ name: Agenda deportiva
 #
 # Secrets necesarios (Settings → Secrets and variables → Actions):
 #   FOOTBALL_DATA_TOKEN, LIVE_TENNIS_API_KEY, BLACKTOP_API_KEY
-# Opcional (canales de TV): THESPORTSDB_API_KEY. Sin él se usa la clave pública gratuita.
+# Opcional (identificar partidos en TheSportsDB): THESPORTSDB_API_KEY. Sin él se usa la clave pública gratuita.
 on:
   schedule:
     - cron: "17 * * * *"   # una vez por hora, en el minuto 17
@@ -28,7 +28,7 @@ concurrency:
 jobs:
   agenda:
     runs-on: ubuntu-latest
-    timeout-minutes: 15   # incluye ~3 min de consultas espaciadas a TheSportsDB
+    timeout-minutes: 15   # margen para la espera de 1 min de TheSportsDB si responde 429
     steps:
       - uses: actions/checkout@v4
 

@@ -80,9 +80,14 @@ internal fun EventDetail(
     val now = remember(event.id) { System.currentTimeMillis() }
     val status = event.status(now)
     val more = remember(event.id, ui.agenda) { vm.moreToday(event.id) }
-    val blocks: List<Pair<AgendaChannel, List<Channel>>> = remember(event.id, ui.links) {
+    // Canales del partido: los de la agenda o, si no trae, los que se piden al abrirlo (una sola vez).
+    LaunchedEffect(event.id) { vm.requestChannels(event) }
+    val channels = ui.channelsOf(event)
+    val loading = event.id in ui.tvLoading
+    val failed = event.id in ui.tvFailed
+    val blocks: List<Pair<AgendaChannel, List<Channel>>> = remember(event.id, ui.links, channels) {
         // Primero los canales para los que tienes opciones.
-        event.channels.map { it to ui.links[it.name].orEmpty() }.sortedByDescending { it.second.isNotEmpty() }
+        channels.map { it to ui.links[it.name].orEmpty() }.sortedByDescending { it.second.isNotEmpty() }
     }
     val totalOptions = ui.optionCount(event)
     val onMissing: (AgendaChannel) -> Unit = { channel ->
@@ -97,7 +102,7 @@ internal fun EventDetail(
     LaunchedEffect(event.id) {
         repeat(3) {
             withFrameNanos { }
-            val target = if (event.channels.isNotEmpty()) firstChannel else backButton
+            val target = if (channels.isNotEmpty()) firstChannel else backButton
             if (runCatching { target.requestFocus() }.isSuccess) return@LaunchedEffect
         }
     }
@@ -113,8 +118,8 @@ internal fun EventDetail(
             item(key = "title") { Titles(compact = true) }
             item(key = "hero") { MatchHero(event, status, compact = true) }
             item(key = "label") { ChannelsLabel(totalOptions) }
-            if (event.channels.isEmpty()) {
-                item(key = "none") { NoChannels() }
+            if (channels.isEmpty()) {
+                item(key = "none") { NoChannels(loading, failed) }
             }
             itemsIndexed(blocks, key = { i, b -> "${b.first.name}_$i" }) { index, (channel, options) ->
                 ChannelBlock(
@@ -142,8 +147,8 @@ internal fun EventDetail(
             MatchHero(event, status, compact = false)
             ChannelsLabel(totalOptions)
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (event.channels.isEmpty()) {
-                    NoChannels()
+                if (channels.isEmpty()) {
+                    NoChannels(loading, failed)
                 } else {
                     LazyColumn(
                         Modifier.fillMaxSize().focusRestorer(),
@@ -208,8 +213,13 @@ private fun ChannelsLabel(totalOptions: Int) {
 }
 
 @Composable
-private fun NoChannels() {
-    Txt("Todavía no hay canal confirmado para este encuentro.", NeonType.Body, color = Neon.Dim, modifier = Modifier.padding(6.dp))
+private fun NoChannels(loading: Boolean = false, failed: Boolean = false) {
+    val text = when {
+        loading -> "Buscando canales…"
+        failed -> "No se han podido consultar los canales. Vuelve a abrir el partido para reintentarlo."
+        else -> "Todavía no hay canal confirmado para este encuentro."
+    }
+    Txt(text, NeonType.Body, color = Neon.Dim, modifier = Modifier.padding(6.dp))
 }
 
 @Composable

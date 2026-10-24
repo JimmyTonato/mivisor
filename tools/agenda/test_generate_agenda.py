@@ -398,7 +398,7 @@ class StatusTests(unittest.TestCase):
         previous = self.previous_agenda()
         routes = all_ok_routes()
         routes[pv.Jolpica.BASE] = pv.ProviderError(pv.PROVIDER_UNAVAILABLE, "HTTP 503")
-        later = NOW + timedelta(days=2)   # la clasificación del GP de México ya pasó
+        later = NOW + timedelta(days=3)   # la clasificación del GP de México fue un día anterior
         result, _ = run(routes, previous=previous, now=later)
         ids = {e["id"] for e in result.agenda["events"] if e["sport"] == "formula1"}
         self.assertNotIn("formula1-2026-20-qualifying", ids)

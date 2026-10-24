@@ -20,7 +20,7 @@ TZ = ZoneInfo("Europe/Madrid")
 SCHEMA_VERSION = 1
 SOURCE_NAME = "MiVisor Sports APIs"
 
-# Ventana temporal de la agenda: unas horas hacia atrás y los próximos 14 días.
+# Ventana temporal de la agenda: todo el día de hoy (y como mínimo 6 h atrás) y los próximos 14 días.
 HOURS_BACK = 6
 DAYS_AHEAD = 14
 
@@ -49,6 +49,8 @@ class Event:
     homeLogo: Optional[str] = None
     awayLogo: Optional[str] = None
     competitionLogo: Optional[str] = None
+    # Identificador del partido para pedir sus canales de TV (lo usa la app al abrir el partido).
+    tvId: Optional[str] = None
     # Datos internos del proveedor (jornada, temporada, nombres completos…) para enriquecer el
     # evento. NUNCA se escriben en agenda.json.
     ref: dict = field(default_factory=dict, compare=False, repr=False)
@@ -96,7 +98,13 @@ def utc_iso(dt: datetime) -> str:
 
 
 def window(now: datetime) -> tuple[datetime, datetime]:
-    return now - timedelta(hours=HOURS_BACK), now + timedelta(days=DAYS_AHEAD)
+    """
+    Desde las 00:00 de hoy (hora de Madrid) hasta dentro de 14 días: los partidos de hoy se
+    conservan aunque ya se hayan jugado, y los de días anteriores desaparecen. Si es muy temprano,
+    se mantienen además las últimas horas (un partido de anoche que aún pueda estar en juego).
+    """
+    midnight = now.astimezone(TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    return min(midnight, now - timedelta(hours=HOURS_BACK)), now + timedelta(days=DAYS_AHEAD)
 
 
 def in_window(dt: datetime, now: datetime) -> bool:
@@ -120,6 +128,7 @@ def event_to_json(ev: Event) -> dict:
         "homeLogo": ev.homeLogo,
         "awayLogo": ev.awayLogo,
         "competitionLogo": ev.competitionLogo,
+        "tvId": ev.tvId,
     }
     data = {k: v for k, v in data.items() if v not in (None, "")}
     data["channels"] = [{k: v for k, v in vars(c).items() if v is not None} for c in ev.channels]
@@ -141,6 +150,7 @@ def event_from_json(data: dict) -> Optional[Event]:
             start=start, title=data.get("title") or " - ".join(x for x in (data.get("home"), data.get("away")) if x),
             home=data.get("home"), away=data.get("away"), channels=channels,
             homeLogo=data.get("homeLogo"), awayLogo=data.get("awayLogo"), competitionLogo=data.get("competitionLogo"),
+            tvId=str(data["tvId"]) if data.get("tvId") else None,
         )
     except (KeyError, TypeError, AttributeError):
         return None

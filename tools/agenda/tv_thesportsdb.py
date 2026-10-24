@@ -1,19 +1,17 @@
 """
-Enriquecimiento de TV con TheSportsDB: rellena "channels" de los partidos de fútbol con los
-broadcasters que devuelve la fuente, DE CUALQUIER PAÍS (no se filtra por país).
+TheSportsDB: identifica cada partido de fútbol en TheSportsDB y publica su id como "tvId".
 
-    Event (Football-Data) ──▶ eventsround.php (una petición por liga y jornada)
-                          ──▶ cruce por hora + equipos → idEvent de TheSportsDB
-                          ──▶ lookuptv.php?id=idEvent → [{strChannel, strCountry}, …]
-                          ──▶ Channel(name=strChannel, note=strCountry)
+    Event (Football-Data) ──▶ eventsround.php (UNA petición por liga y jornada)
+                          ──▶ cruce por hora + equipos ──▶ tvId en agenda.json
 
-- `name` lleva SOLO el nombre del canal (ChannelMatcher empareja por nombre); el país va en `note`.
-- Duplicados: mismo canal + mismo país se cuenta una vez. Mismo canal en otro país es otra entrada.
-- Plan gratuito: lookuptv devuelve como máximo 2 broadcasters por partido, y hay 30 peticiones
-  por minuto. Se acepta: se muestran los que lleguen (2, 1 o ninguno → "channels": []).
-- Presupuesto por ejecución: las peticiones se espacian y se limitan; los partidos que no se
-  consultan en esta ejecución conservan los canales obtenidos en ejecuciones anteriores.
-- Un fallo de TheSportsDB NUNCA afecta a los eventos: se publican igual, con los canales que hubiera.
+Los CANALES los pide la app al abrir un partido (lookuptv.php?id=tvId), desde la conexión de cada
+usuario, y los guarda. Así GitHub Actions hace solo unas pocas peticiones por hora y no choca con el
+límite de la clave gratuita (compartida por todo el mundo y que corta tras ~10 peticiones seguidas).
+
+- Los ids ya conocidos se reutilizan de la agenda anterior: solo se piden las jornadas nuevas.
+- Ante un 429 se espera un minuto y se reintenta una vez; si vuelve a fallar, se deja para la
+  siguiente ejecución (los partidos aparecen igual, solo sin tvId todavía).
+- Un fallo de TheSportsDB NUNCA afecta a los eventos ni a los estados ok/stale/unavailable.
 - Clave: THESPORTSDB_API_KEY (opcional). Sin ella se usa la clave pública gratuita "123".
   La clave va en la ruta de la URL, así que las URLs nunca se registran.
 """
@@ -25,7 +23,7 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable, Mapping, Optional
 
-from agenda_core import Channel, Event, TvProvider, clean, event_from_json, parse_instant, slug
+from agenda_core import Event, TvProvider, parse_instant
 from providers import RATE_LIMITED, Http, ProviderError
 
 BASE = "https://www.thesportsdb.com/api/v1/json"
@@ -97,9 +95,9 @@ def name_similarity(ours: Iterable[str], theirs: Optional[str]) -> float:
 
 class TheSportsDbTv(TvProvider):
     label = "TheSportsDB"
-    LOOKAHEAD = timedelta(hours=96)   # se consultan los partidos de los próximos 4 días
-    MAX_REQUESTS = 80                 # por ejecución (≈ 3 min al ritmo permitido)
-    MIN_INTERVAL = 2.1                # segundos entre peticiones: < 30 por minuto
+    MAX_REQUESTS = 12                 # por ejecución: una por liga y jornada pendiente
+    MIN_INTERVAL = 2.5                # segundos entre peticiones
+    RATE_LIMIT_WAIT = 61.0            # TheSportsDB: tras un 429, esperar un minuto
     MAX_KICKOFF_GAP = timedelta(hours=3)
     MAX_CONSECUTIVE_ERRORS = 3
 
@@ -115,7 +113,7 @@ class TheSportsDbTv(TvProvider):
         self.errors_in_row = 0
         self.stopped: Optional[str] = None
         self.log: list[str] = []
-        self.previous_channels = self._previous_channels(previous)
+        self.previous_ids = self._previous_ids(previous)
 
     # ------------------------------------------------------------------ API pública
 
@@ -124,86 +122,53 @@ class TheSportsDbTv(TvProvider):
         try:
             self._enrich(events)
         except Exception as exc:  # noqa: BLE001
-            self.log.append(f"{self.label}: FAILED - {type(exc).__name__} - events published without new channels")
+            self.log.append(f"{self.label}: FAILED - {type(exc).__name__} - events published without tvId")
         return events
 
     # ------------------------------------------------------------------ interno
 
     def _enrich(self, events: list[Event]) -> None:
         football = [e for e in events if e.sport == "futbol"]
-        # 1) Lo ya conocido de ejecuciones anteriores (datos reales de la fuente, no inventados).
         reused = 0
         for ev in football:
-            cached = self.previous_channels.get(ev.id)
-            if cached and not ev.channels:
-                ev.channels = list(cached)
+            if not ev.tvId and ev.id in self.previous_ids:
+                ev.tvId = self.previous_ids[ev.id]
                 reused += 1
 
-        # 2) Partidos a consultar ahora: los más próximos primero.
-        horizon = self.now + self.LOOKAHEAD
-        due = sorted(
-            (e for e in football if e.start <= horizon and e.start >= self.now - timedelta(hours=3)),
-            key=lambda e: e.start,
-        )
-        ids = self._resolve_ids(due)
-
-        looked = with_channels = total = 0
-        for ev in due:
-            tsdb_id = ids.get(ev.id)
-            if not tsdb_id or self.stopped:
-                continue
-            channels = self._lookup_tv(tsdb_id)
-            if channels is None:
-                continue
-            looked += 1
-            ev.channels = merge_channels([], channels)
-            if ev.channels:
-                with_channels += 1
-                total += len(ev.channels)
-
-        if self.stopped:
-            self.log.append(
-                f"{self.label}: PARTIAL - {self.stopped} - {looked} events updated, "
-                f"{reused} kept from the previous agenda"
-            )
-        else:
-            self.log.append(
-                f"{self.label}: OK - {looked} events checked, {with_channels} with channels "
-                f"({total} channels), {len(due) - len(ids)} not matched, {reused} reused"
-            )
-
-    def _resolve_ids(self, due: list[Event]) -> dict[str, str]:
-        """Nuestro id → idEvent de TheSportsDB, con una petición por liga y jornada."""
+        # Jornadas con partidos aún sin identificar, las más próximas primero.
         rounds: dict[tuple[str, str, str], list[Event]] = {}
-        for ev in due:
+        for ev in sorted(football, key=lambda e: e.start):
+            if ev.tvId:
+                continue
             league = LEAGUES.get(ev.ref.get("competitionCode"))
             matchday, season = ev.ref.get("matchday"), ev.ref.get("season")
             if league and matchday and season:
                 rounds.setdefault((league, str(matchday), season), []).append(ev)
 
-        ids: dict[str, str] = {}
+        found = 0
         for (league, matchday, season), group in rounds.items():
             if self.stopped:
                 break
             data = self._get("eventsround.php", {"id": league, "r": matchday, "s": season},
                              f"tv-round-{league}-{matchday}")
             candidates = records(data, "events")
-            if not candidates:
+            if not candidates and not self.stopped:
                 # Respaldo: partidos de esa liga por día (útil si la jornada no coincide).
                 for day in sorted({e.start.astimezone(timezone.utc).date().isoformat() for e in group}):
                     candidates += records(self._get("eventsday.php", {"d": day, "l": league},
                                                     f"tv-day-{league}-{day}"), "events")
             for ev in group:
-                found = best_match(ev, candidates, self.MAX_KICKOFF_GAP)
-                if found:
-                    ids[ev.id] = found
-        return ids
+                tv_id = best_match(ev, candidates, self.MAX_KICKOFF_GAP)
+                if tv_id:
+                    ev.tvId = tv_id
+                    found += 1
 
-    def _lookup_tv(self, tsdb_id: str) -> Optional[list[Channel]]:
-        data = self._get("lookuptv.php", {"id": tsdb_id}, f"tv-lookup-{tsdb_id}")
-        if data is None:
-            return None
-        return broadcasters(records(data, "tvevent"), tsdb_id)
+        identified = sum(1 for e in football if e.tvId)
+        status = f"PARTIAL - {self.stopped}" if self.stopped else "OK"
+        self.log.append(
+            f"{self.label}: {status} - {identified}/{len(football)} football events identified "
+            f"({found} new, {reused} from previous agenda, {self.requests} requests)"
+        )
 
     def _get(self, endpoint: str, params: dict, label: str) -> Any:
         if self.stopped:
@@ -211,33 +176,34 @@ class TheSportsDbTv(TvProvider):
         if self.requests >= self.MAX_REQUESTS:
             self.stopped = "request budget reached"
             return None
-        if self.last_request is not None:
-            wait = self.MIN_INTERVAL - (self.clock() - self.last_request)
-            if wait > 0:
-                self.sleep(wait)
-        self.requests += 1
-        try:
-            data = self.http.get_json(f"{BASE}/{self.key}/{endpoint}", params=params, label=label)
-            self.errors_in_row = 0
-            return data
-        except ProviderError as exc:
-            self.errors_in_row += 1
-            if exc.code == RATE_LIMITED:
-                self.stopped = RATE_LIMITED
-            elif self.errors_in_row >= self.MAX_CONSECUTIVE_ERRORS:
-                self.stopped = exc.code
-            return None
-        finally:
-            self.last_request = self.clock()
+        for attempt in (1, 2):
+            if self.last_request is not None:
+                wait = self.MIN_INTERVAL - (self.clock() - self.last_request)
+                if wait > 0:
+                    self.sleep(wait)
+            self.requests += 1
+            try:
+                data = self.http.get_json(f"{BASE}/{self.key}/{endpoint}", params=params, label=label)
+                self.errors_in_row = 0
+                return data
+            except ProviderError as exc:
+                self.errors_in_row += 1
+                if exc.code == RATE_LIMITED and attempt == 1:
+                    self.sleep(self.RATE_LIMIT_WAIT)   # documentado: esperar un minuto y reintentar
+                    continue
+                if exc.code == RATE_LIMITED or self.errors_in_row >= self.MAX_CONSECUTIVE_ERRORS:
+                    self.stopped = exc.code
+                return None
+            finally:
+                self.last_request = self.clock()
+        return None
 
     @staticmethod
-    def _previous_channels(previous: Optional[dict]) -> dict[str, list[Channel]]:
-        out: dict[str, list[Channel]] = {}
+    def _previous_ids(previous: Optional[dict]) -> dict[str, str]:
+        out: dict[str, str] = {}
         for raw in (previous or {}).get("events") or []:
-            if isinstance(raw, dict) and raw.get("sport") == "futbol":
-                ev = event_from_json(raw)
-                if ev and ev.channels:
-                    out[ev.id] = ev.channels
+            if isinstance(raw, dict) and raw.get("sport") == "futbol" and raw.get("id") and raw.get("tvId"):
+                out[str(raw["id"])] = str(raw["tvId"])
         return out
 
 
@@ -267,30 +233,3 @@ def best_match(ev: Event, candidates: list[dict], max_gap: timedelta) -> Optiona
         if score > best_score:
             best_id, best_score = str(c["idEvent"]), score
     return best_id
-
-
-def broadcasters(rows: list[dict], tsdb_id: Optional[str] = None) -> list[Channel]:
-    """Todos los broadcasters válidos, de cualquier país, sin duplicados."""
-    out: list[Channel] = []
-    for row in rows:
-        if tsdb_id and row.get("idEvent") not in (None, "", tsdb_id):
-            continue
-        name = clean(row.get("strChannel"))
-        if not name:
-            continue
-        country = clean(row.get("strCountry")) or None
-        out.append(Channel(name=name, note=country))
-    return merge_channels([], out)
-
-
-def merge_channels(existing: list[Channel], new: Iterable[Channel]) -> list[Channel]:
-    """Une listas sin duplicados: mismo canal + mismo país = duplicado; otro país = otra entrada."""
-    seen = set()
-    out = []
-    for ch in [*existing, *new]:
-        key = (slug(ch.name), slug(ch.note or ""))
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(ch)
-    return out

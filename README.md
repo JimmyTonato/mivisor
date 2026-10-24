@@ -30,13 +30,13 @@ Toda la app usa el estilo "neón" de la Agenda: azul noche con luces de fondo, p
 
 ## Agenda deportiva
 
-Fútbol, tenis, Fórmula 1 y MotoGP de los próximos 14 días, generados a partir de APIs deportivas estructuradas.
+Fútbol, tenis, Fórmula 1 y MotoGP de hoy y de los próximos 14 días, generados a partir de APIs deportivas estructuradas. Los partidos de hoy se mantienen todo el día aunque ya se hayan jugado. Los de días anteriores desaparecen en la siguiente actualización. Cada deporte con fuente aparece como categoría aunque no tenga eventos ("No hay eventos de MotoGP para hoy").
 
 ```
 Football-Data.org · Live Tennis API · Blacktop (MotoGP) · Jolpica (F1)
         │  GitHub Actions, una vez por hora (minuto 17) + ejecución manual
         ▼
-tools/agenda/generate_agenda.py  ──(canales: TheSportsDB, opcional)──▶  agenda.json (v1)  ──▶  rama `agenda-data`
+tools/agenda/generate_agenda.py  ──(tvId: TheSportsDB, opcional)──▶  agenda.json (v1)  ──▶  rama `agenda-data`
         ▼
 APK: descarga raw.githubusercontent.com/<usuario>/<repo>/agenda-data/agenda.json
      como mucho cada 15 min (caché + ETag / If-None-Match → 304), y sin conexión usa la última copia
@@ -54,14 +54,18 @@ APK: descarga raw.githubusercontent.com/<usuario>/<repo>/agenda-data/agenda.json
   | `motogp` | Orange Cat Blacktop (`/moto-gp/events`) | Clasificación, Sprint y Carrera de MotoGP. Sin libres, warm up, Moto2 ni Moto3. |
 
   `motor` y `baloncesto` se siguen aceptando por compatibilidad. Fórmula 1 y MotoGP aparecen como filtros separados.
-- **Canales (TheSportsDB)**: los partidos de fútbol se completan con los broadcasters que devuelve [TheSportsDB](https://www.thesportsdb.com/) **de cualquier país** (DAZN, Movistar Plus+, Sky Sports, TNT Sports, beIN Sports, ESPN, Canal+…). No se filtra por país.
-  - Cada canal es `{"name": "DAZN LaLiga", "note": "Spain"}`. `name` lleva solo el nombre, que es lo que usa `ChannelMatcher` para buscarlo en tus códigos. El país va en `note`, o se omite si la fuente no lo da.
-  - Cruce: una petición `eventsround` por liga y jornada. El partido se identifica por la hora (±3 h) y los equipos, con nombres normalizados ("Barça" = "Barcelona", "Atleti" = "Atlético de Madrid"…). Después, una petición `lookuptv` por partido.
-  - Duplicados: mismo canal y mismo país cuentan una vez. El mismo canal en otro país es otra entrada.
-  - Plan gratuito: hasta 2 broadcasters por partido y 30 peticiones por minuto. Se consultan los partidos de los próximos 4 días, con un máximo de 80 peticiones espaciadas por ejecución. El resto conserva los canales de ejecuciones anteriores. Si no hay broadcasters, `"channels": []` y el evento aparece igual.
-  - **Nunca se inventan canales** y un fallo de TheSportsDB nunca afecta a los eventos. Solo se ve en el log (`TheSportsDB: OK - …` / `PARTIAL` / `FAILED`) y no cambia los estados `ok`/`stale`/`unavailable`.
+- **Canales (TheSportsDB)**: los canales se piden **al abrir cada partido**, desde la app. Así cada usuario hace como mucho una petición por partido desde su propia conexión, y no chocamos con el límite de la clave gratuita.
+  - **Servidor (GitHub Actions):** solo identifica cada partido de fútbol en TheSportsDB. Hace una petición `eventsround` por liga y jornada (unas 6–8 a la hora), cruza hora y equipos ("Barça" = "Barcelona", "Atleti" = "Atlético de Madrid"…) y publica el resultado como `"tvId"` en el evento. Es un campo opcional, así que el formato sigue siendo v1. Los ids ya conocidos se reutilizan de la agenda anterior. Si TheSportsDB responde 429, espera un minuto y reintenta una vez; si vuelve a fallar, lo deja para la siguiente hora.
+  - **App, al abrir un partido:**
+    - Si ya trae canales en `agenda.json`, o ya se pidieron antes, **no se hace ninguna llamada**.
+    - Si no, 1 llamada a `lookuptv.php?id=<tvId>` con la clave pública gratuita "123" de TheSportsDB (no es un secreto). Los canales se guardan en memoria y en disco (`cacheDir/agenda/tv`, se borran a los 3 días).
+    - Si TheSportsDB aún no tiene canales, se vuelve a preguntar pasadas 2 horas. Si la llamada falla, se muestra un aviso y se reintenta al volver a abrir el partido.
+    - Código en `data/TvChannelsRepository.kt`.
+  - **Formato de los canales:** broadcasters de **cualquier país**, sin filtro. Cada uno es `{"name": "DAZN LaLiga", "note": "Spain"}`: `name` lleva solo el nombre, que es lo que usa `ChannelMatcher`, y el país va en `note`. Mismo canal y mismo país = duplicado; el mismo canal en otro país es otra entrada. El plan gratuito da hasta 2 por partido.
+  - **Nunca se inventan canales.** Si TheSportsDB falla, el partido se ve igual.
+  - **Excepción a "la app no llama a APIs":** es la única llamada directa de la app y no lleva ninguna clave privada. Una clave de pago de TheSportsDB iría solo como secret de GitHub, nunca en la APK.
   - Logos de canal: no se toman de TheSportsDB (sus imágenes no son de uso libre). Se pueden añadir en `logos.json`.
-  - Tenis, F1 y MotoGP llegan de momento con `channels: []`.
+  - Tenis, F1 y MotoGP no tienen de momento `tvId` (sin canales).
 - **Horas**: las APIs dan UTC; `agenda.json` las presenta en Europe/Madrid con su desfase real (`+01:00` en invierno, `+02:00` en verano), calculado con `zoneinfo`.
 - **IDs estables**: `football-123456`, `tennis-987654`, `formula1-2026-20-race`, `motogp-2026-malaysia-race`.
 - **Si un proveedor falla**, los demás siguen publicándose. Cada uno tiene su estado en `stats`:
@@ -110,7 +114,7 @@ Opcional: `THESPORTSDB_API_KEY` (clave de pago de TheSportsDB). Sin ella se usa 
     "id": "football-123456", "sport": "futbol", "competition": "LaLiga",
     "start": "2026-10-24T18:00:00+02:00", "home": "Real Madrid", "away": "Sevilla",
     "title": "Real Madrid - Sevilla", "homeLogo": "https://…", "competitionLogo": "https://…",
-    "channels": [{"name": "DAZN LaLiga", "note": "Spain"}, {"name": "beIN Sports", "note": "France"}]
+    "tvId": "2501234", "channels": []
   }, {
     "id": "formula1-2026-20-race", "sport": "formula1", "competition": "Fórmula 1",
     "start": "2026-10-25T21:00:00+01:00", "title": "Mexico City Grand Prix · Carrera", "channels": []
@@ -118,7 +122,7 @@ Opcional: `THESPORTSDB_API_KEY` (clave de pago de TheSportsDB). Sin ella se usa 
 }
 ```
 
-`stats` es opcional para la app: si falta, simplemente no se muestran avisos. Cada canal admite `name`, `dial`, `note` y `logo`.
+`stats` es opcional para la app: si falta, simplemente no se muestran avisos. `tvId` también es opcional: la app lo usa para pedir los canales al abrir el partido (`[{"name": "DAZN LaLiga", "note": "Spain"}, …]`). Cada canal admite `name`, `dial`, `note` y `logo`.
 
 ### Probar en local
 

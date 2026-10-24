@@ -25,7 +25,9 @@ class AgendaEvent(
     val channels: List<AgendaChannel>,
     val homeLogo: String?,
     val awayLogo: String?,
-    val competitionLogo: String? = null
+    val competitionLogo: String? = null,
+    /** Id del partido en TheSportsDB: la app pide sus canales al abrirlo (si no trae ninguno). */
+    val tvId: String? = null
 ) {
     val isMatch: Boolean get() = !home.isNullOrBlank() && !away.isNullOrBlank()
 
@@ -64,6 +66,20 @@ class Agenda(
     val health: Map<String, SportHealth> = emptyMap()
 ) {
     val sports: List<String> by lazy { events.map { it.sport }.distinct() }
+
+    /**
+     * Categorías a mostrar en los filtros: los deportes con eventos Y los que tienen fuente en
+     * "stats" aunque ahora no tengan eventos (p. ej. MotoGP en una semana sin carrera).
+     */
+    val categories: List<String> by lazy {
+        (health.keys + sports).distinct().sortedBy { SPORT_ORDER.indexOf(it).let { i -> if (i < 0) Int.MAX_VALUE else i } }
+    }
+
+    fun eventCount(sport: String): Int = events.count { it.sport == sport }
+
+    companion object {
+        val SPORT_ORDER = listOf("futbol", "tenis", "formula1", "motogp", "baloncesto", "motor")
+    }
 
     /** Deportes cuya agenda no se ha podido actualizar (stale) o cargar (unavailable). */
     val problems: Map<String, SourceStatus> by lazy {

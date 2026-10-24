@@ -21,8 +21,8 @@ Credenciales (solo variables de entorno / GitHub Secrets):
   FOOTBALL_DATA_TOKEN, LIVE_TENNIS_API_KEY, BLACKTOP_API_KEY   (Jolpica no necesita clave)
   THESPORTSDB_API_KEY (opcional; sin ella se usa la clave pública gratuita de TheSportsDB)
 
-Canales de TV: tv_thesportsdb.py añade los broadcasters de TheSportsDB (de cualquier país) a los
-partidos de fútbol. Es independiente: si falla, la agenda se publica igual.
+Canales de TV: tv_thesportsdb.py identifica cada partido de fútbol en TheSportsDB ("tvId") y la app
+pide sus canales al abrirlo. Es independiente: si falla, la agenda se publica igual.
 
 Uso:
   python generate_agenda.py --out agenda.json [--previous previous.json] [--debug-dir debug/]
@@ -115,7 +115,7 @@ def generate(
     try:
         unique = tv.enrich(unique)
     except Exception as exc:  # noqa: BLE001
-        log.append(f"TV: FAILED - {type(exc).__name__} - events published without new channels")
+        log.append(f"TV: FAILED - {type(exc).__name__} - events published without TV data")
     log.extend(getattr(tv, "log", []) or [])
     if logos:
         apply_logos(unique, logos)
