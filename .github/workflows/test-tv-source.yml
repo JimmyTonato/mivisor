@@ -5,8 +5,10 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   diagnostic:
+    if: github.event.head_commit.message == 'Añadir diagnóstico temporal de fuente TV respetando robots'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -30,3 +32,25 @@ jobs:
             tv-source-log.txt
           if-no-files-found: error
           retention-days: 7
+  read-report:
+    if: github.event.head_commit.message != 'Añadir diagnóstico temporal de fuente TV respetando robots'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Recuperar informe existente sin consultar la web
+        uses: actions/download-artifact@v4
+        with:
+          name: tv-source-diagnostic
+          run-id: 40128666224
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Mostrar informe completo
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          report = json.loads(Path('tv-source-report.json').read_text())
+          text = Path('tv-source-log.txt').read_text()
+          print(text)
+          escaped = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print(f'::notice title=Informe completo TV::{escaped}')
+          PY
