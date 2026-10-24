@@ -51,6 +51,10 @@ jobs:
           report = json.loads(Path('tv-source-report.json').read_text())
           text = Path('tv-source-log.txt').read_text()
           print(text)
-          escaped = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-          print(f'::notice title=Informe completo TV::{escaped}')
+          parts = [json.dumps({k: report.get(k) for k in ['runner', 'robots', 'permissions', 'page', 'contains', 'event_candidates', 'logo_hosts', 'result']}, ensure_ascii=False)]
+          parts += [json.dumps({'sample': n, **row}, ensure_ascii=False) for n, row in enumerate(report.get('sample', [])[:3], 1)]
+          parts += ['\n'.join(text.splitlines()[-6:])]
+          for part in parts:
+              escaped = part.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::notice title=Informe TV::{escaped}')
           PY
