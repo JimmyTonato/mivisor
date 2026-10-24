@@ -70,7 +70,10 @@ fun AgendaScreen(
     var lastOpenedId by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(Unit) { vm.load() }
+    LaunchedEffect(Unit) {
+        vm.load()
+        vm.refreshIndex()
+    }
     BackHandler(enabled = selected != null) { selected = null }
 
     Box(Modifier.fillMaxSize().stadiumLights()) {
@@ -154,6 +157,7 @@ private fun AgendaHome(
                             items(ui.visible, key = { it.id }, contentType = { "event" }) { event ->
                                 EventRow(
                                     event = event,
+                                    options = ui.optionCount(event),
                                     showDay = ui.day == DayFilter.NEXT,
                                     modifier = if (event.id == restoreFocusId) Modifier.focusRequester(restore) else Modifier,
                                     onClick = { onOpenEvent(event) }
@@ -250,7 +254,7 @@ private fun DayHeader(ui: AgendaUi, vm: AgendaViewModel) {
 }
 
 @Composable
-private fun EventRow(event: AgendaEvent, showDay: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun EventRow(event: AgendaEvent, options: Int, showDay: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val now = remember(event.id) { System.currentTimeMillis() }
     val status = event.status(now)
     NeonCard(
@@ -289,13 +293,14 @@ private fun EventRow(event: AgendaEvent, showDay: Boolean, modifier: Modifier, o
                 Txt(event.title, NeonType.H3, maxLines = 2, modifier = Modifier.width(162.dp))
             }
             Box(Modifier.width(10.dp))
-            ViewChannelsPill(focused)
+            ViewChannelsPill(focused, options)
         }
     }
 }
 
 @Composable
-private fun ViewChannelsPill(focused: Boolean) {
+/** "Ver canales" y, si tienes enlaces para el partido, cuántas opciones hay ("· 4"). */
+private fun ViewChannelsPill(focused: Boolean, options: Int) {
     Row(
         Modifier
             .background(
@@ -309,6 +314,7 @@ private fun ViewChannelsPill(focused: Boolean) {
     ) {
         Icon(R.drawable.ic_play, if (focused) Neon.Text else Neon.Dim, size = 14.dp)
         Txt("Ver canales", NeonType.Body, color = if (focused) Neon.Text else Neon.Dim)
+        if (options > 0) Txt("· $options", NeonType.Body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold), color = Neon.Cyan)
     }
 }
 

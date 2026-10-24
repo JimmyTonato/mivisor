@@ -23,7 +23,9 @@ class Channel(
     val kind: ChannelKind,
     val initials: String,
     /** Índice de color precalculado para el monograma (evita trabajo en cada recomposición). */
-    val tint: Int
+    val tint: Int,
+    /** Categoría (código) de la que viene; la agenda lo muestra en cada opción. */
+    val source: String? = null
 )
 
 class Section(

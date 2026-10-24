@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,7 +66,6 @@ internal fun EventDetail(
     val context = LocalContext.current
     val firstChannel = remember { FocusRequester() }
     val backButton = remember { FocusRequester() }
-    var choosing by remember { mutableStateOf<Pair<AgendaChannel, List<Channel>>?>(null) }
     val now = remember(event.id) { System.currentTimeMillis() }
     val status = event.status(now)
     val more = remember(event.id, ui.agenda) { vm.moreToday(event.id) }
@@ -99,36 +100,48 @@ internal fun EventDetail(
 
                 MatchHero(event, status)
 
-                Txt("Canales disponibles", NeonType.H2, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
+                val totalOptions = ui.optionCount(event)
+                Row(Modifier.padding(top = 8.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Txt("Canales disponibles", NeonType.H2)
+                    if (totalOptions > 0) {
+                        Txt(
+                            "  ·  ${if (totalOptions == 1) "1 opción" else "$totalOptions opciones"} en tus canales",
+                            NeonType.Body, color = Neon.Cyan
+                        )
+                    }
+                }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (event.channels.isEmpty()) {
                         Txt("Todavía no hay canal confirmado para este encuentro.", NeonType.Body, color = Neon.Dim, modifier = Modifier.padding(6.dp))
                     } else {
+                        // Primero los canales para los que tienes opciones.
+                        val blocks = remember(event.id, ui.links) {
+                            event.channels
+                                .map { it to ui.links[it.name].orEmpty() }
+                                .sortedByDescending { it.second.isNotEmpty() }
+                        }
                         LazyColumn(
                             Modifier.fillMaxSize().focusRestorer(),
                             contentPadding = PaddingValues(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(7.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            itemsIndexed(event.channels, key = { i, c -> "${c.name}_$i" }) { index, channel ->
-                                val links = ui.links[channel.name].orEmpty()
-                                ChannelRow(
+                            itemsIndexed(blocks, key = { i, b -> "${b.first.name}_$i" }) { index, (channel, options) ->
+                                ChannelBlock(
                                     channel = channel,
                                     competition = event.competition,
                                     status = status,
-                                    links = links.size,
-                                    modifier = if (index == 0) Modifier.focusRequester(firstChannel) else Modifier
-                                ) {
-                                    when {
-                                        links.size == 1 -> onOpenChannel(links[0])
-                                        links.size > 1 -> choosing = channel to links
-                                        else -> Toast.makeText(
+                                    options = options,
+                                    firstFocus = if (index == 0) Modifier.focusRequester(firstChannel) else Modifier,
+                                    onOpen = onOpenChannel,
+                                    onMissing = {
+                                        Toast.makeText(
                                             context,
                                             if (ui.indexedChannels == 0) "Abre antes tus categorías para poder enlazar canales"
-                                            else "«${channel.name}» no está en tus categorías",
+                                            else "«${channel.name}» no está en ninguno de tus códigos",
                                             Toast.LENGTH_SHORT
                                         ).show()
                                     }
-                                }
+                                )
                             }
                         }
                     }
@@ -146,27 +159,6 @@ internal fun EventDetail(
                 }
             }
             MoreToday(more, onOpenEvent, Modifier.width(250.dp).fillMaxHeight())
-        }
-    }
-
-    choosing?.let { (agendaChannel, options) ->
-        val first = remember { FocusRequester() }
-        TvDialog(
-            title = "¿Qué canal abrir?",
-            subtitle = "Tienes ${options.size} canales que coinciden con «${agendaChannel.name}»",
-            onDismiss = { choosing = null },
-            initialFocus = first
-        ) {
-            LazyColumn(Modifier.fillMaxWidth().height(260.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(options, key = { i, c -> "${c.id}_$i" }) { index, channel ->
-                    MenuRow(
-                        listOfNotNull(channel.name, channel.group).joinToString("  ·  "),
-                        R.drawable.ic_play,
-                        { choosing = null; onOpenChannel(channel) },
-                        if (index == 0) Modifier.focusRequester(first) else Modifier
-                    )
-                }
-            }
         }
     }
 }
@@ -217,18 +209,26 @@ private fun MatchCenter(event: AgendaEvent, status: EventStatus) {
     }
 }
 
+/**
+ * Un canal de la agenda y, debajo, TODAS tus opciones para él (de cualquier código):
+ * "Opción 1 · Deportes · ACE", "Opción 2 · Fútbol · HLS"… OK sobre una opción la abre.
+ */
 @Composable
-private fun ChannelRow(
+private fun ChannelBlock(
     channel: AgendaChannel,
     competition: String?,
     status: EventStatus,
-    links: Int,
-    modifier: Modifier,
-    onClick: () -> Unit
+    options: List<Channel>,
+    firstFocus: Modifier,
+    onOpen: (Channel) -> Unit,
+    onMissing: () -> Unit
 ) {
-    NeonCard(onClick = onClick, modifier = modifier.fillMaxWidth().height(46.dp), radius = 12.dp) { focused ->
-        Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            // Caja del logo del canal (o su nombre abreviado mientras no haya logo).
+    Column(
+        Modifier.fillMaxWidth().neonPanel(14.dp, highlight = Neon.Blue).padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Logo del canal (o su nombre abreviado mientras no haya logo).
             Box(
                 Modifier.width(64.dp).height(32.dp).background(Neon.Bg, RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
@@ -250,36 +250,49 @@ private fun ChannelRow(
                 channel.note?.let { InfoChip(it, Neon.Text, dot = Neon.Blue) }
                 if (status == EventStatus.LIVE) InfoChip("En vivo", androidx.compose.ui.graphics.Color(0xFFFF5C7A), dot = Neon.Red)
             }
-            Box(Modifier.width(10.dp))
-            OpenPill(links, focused)
+        }
+        if (options.isEmpty()) {
+            NeonCard(onClick = onMissing, modifier = firstFocus.height(40.dp), radius = 10.dp, contentAlignment = Alignment.CenterStart) { _ ->
+                Txt("Sin opciones: no está en ninguno de tus códigos", NeonType.Small, color = Neon.Faint, modifier = Modifier.padding(horizontal = 12.dp))
+            }
+        } else {
+            LazyRow(
+                contentPadding = PaddingValues(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                itemsIndexed(options, key = { i, c -> "${c.id}_$i" }) { i, option ->
+                    OptionCard(
+                        number = i + 1,
+                        option = option,
+                        modifier = if (i == 0) firstFocus else Modifier,
+                        onClick = { onOpen(option) }
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun OpenPill(links: Int, focused: Boolean) {
-    val enabled = links > 0
-    Row(
-        Modifier
-            .width(132.dp)
-            .height(32.dp)
-            .background(
-                when {
-                    focused && enabled -> Brush.horizontalGradient(listOf(Neon.Cyan.copy(alpha = 0.45f), Neon.Blue.copy(alpha = 0.45f)))
-                    else -> Brush.horizontalGradient(listOf(Neon.PanelHi, Neon.PanelHi))
-                },
-                RoundedCornerShape(10.dp)
-            )
-            .border(1.dp, if (enabled) Neon.Cyan.copy(alpha = if (focused) 1f else 0.5f) else Neon.Stroke, RoundedCornerShape(10.dp)),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
-    ) {
-        if (enabled) {
-            Icon(R.drawable.ic_play, Neon.Text, size = 15.dp)
-            Box(Modifier.width(8.dp))
-            Txt(if (links > 1) "Abrir canal ($links)" else "Abrir canal", NeonType.Body)
-        } else {
-            Txt("No disponible", NeonType.Small, color = Neon.Faint)
+private fun OptionCard(number: Int, option: Channel, modifier: Modifier, onClick: () -> Unit) {
+    NeonCard(onClick = onClick, modifier = modifier.width(176.dp).height(48.dp), radius = 12.dp, color = Neon.PanelHi) { focused ->
+        Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(28.dp).background(
+                    if (focused) Brush.linearGradient(listOf(Neon.Cyan, Neon.Blue))
+                    else Brush.linearGradient(listOf(Neon.Stroke, Neon.Stroke)),
+                    RoundedCornerShape(14.dp)
+                ),
+                contentAlignment = Alignment.Center
+            ) { Icon(R.drawable.ic_play, Neon.Text, size = 14.dp) }
+            Box(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Txt("Opción $number", NeonType.H3.copy(fontSize = 14.sp))
+                Txt(
+                    listOfNotNull(option.source, option.kind.label).joinToString(" · "),
+                    NeonType.Small, color = if (focused) Neon.Cyan else Neon.Dim
+                )
+            }
         }
     }
 }

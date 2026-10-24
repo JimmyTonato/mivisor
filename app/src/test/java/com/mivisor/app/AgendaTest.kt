@@ -83,6 +83,22 @@ class AgendaTest {
         assertTrue(ChannelMatcher(emptyList()).isEmpty)
     }
 
+    @Test fun sameChannelFromSeveralCodesGivesSeveralOptions() {
+        fun src(name: String, url: String, source: String) =
+            Channel("$source:$url", name, url, null, ChannelKind.ACE, "", 0, source)
+        val mine = listOf(
+            src("DAZN LaLiga 1080", "acestream://aaa", "Deportes"),
+            src("LALIGA DAZN FHD", "acestream://bbb", "Fútbol"),
+            src("DAZN LaLiga", "acestream://ccc", "Extra"),
+            src("DAZN LaLiga", "acestream://aaa", "Copia"),      // mismo enlace: no es otra opción
+            src("DAZN LaLiga 2", "acestream://ddd", "Deportes"), // otro canal
+            src("Movistar LaLiga", "acestream://eee", "Deportes")
+        )
+        val options = ChannelMatcher(mine).match("DAZN LaLiga")
+        assertEquals(listOf("acestream://aaa", "acestream://ccc", "acestream://bbb"), options.map { it.url })
+        assertEquals(listOf("Deportes", "Extra", "Fútbol"), options.map { it.source })
+    }
+
     @Test fun repositoryCachesAndFallsBack() = runBlocking {
         val dir = Files.createTempDirectory("agenda").toFile()
         var now = 1_000_000L

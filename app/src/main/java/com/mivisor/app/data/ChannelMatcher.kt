@@ -25,8 +25,11 @@ class ChannelMatcher(channels: List<Channel>) {
 
     val isEmpty: Boolean get() = entries.isEmpty()
 
-    /** Canales propios que corresponden a [agendaName], mejores primero (máx. [limit]). */
-    fun match(agendaName: String, limit: Int = 6): List<Channel> {
+    /**
+     * Todas tus versiones de [agendaName] (de cualquier código/categoría), mejores primero.
+     * Mismo enlace repetido en varios códigos = una sola opción.
+     */
+    fun match(agendaName: String, limit: Int = 12): List<Channel> {
         val wanted = tokens(agendaName)
         if (wanted.isEmpty()) return emptyList()
         return entries.asSequence()
@@ -40,17 +43,16 @@ class ChannelMatcher(channels: List<Channel>) {
 
     private fun score(wanted: List<String>, have: List<String>): Int? {
         if (have == wanted) return 100
-        // Todas las palabras buscadas, en orden, y lo sobrante sin dígitos.
-        var i = 0
-        val extra = ArrayList<String>()
-        for (token in have) {
-            if (i < wanted.size && token == wanted[i]) i++ else extra += token
-        }
-        if (i != wanted.size) return null
+        val wantedSet = wanted.toSet()
+        // Todas las palabras buscadas, en cualquier orden ("LaLiga DAZN" = "DAZN LaLiga")…
+        if (!have.toSet().containsAll(wantedSet)) return null
+        // …y lo que sobra sin números: "DAZN LaLiga 2" no es "DAZN LaLiga".
+        val extra = have.filter { it !in wantedSet }
         if (extra.any { t -> t.any(Char::isDigit) }) return null
         // Un nombre de una sola palabra genérica ("dazn") no debe enlazar con todo.
-        if (wanted.size == 1 && extra.isNotEmpty()) return null
-        return 80 - extra.size
+        if (wantedSet.size == 1 && extra.isNotEmpty()) return null
+        val sameOrder = have.filter { it in wantedSet } == wanted
+        return (if (sameOrder) 90 else 85) - extra.size
     }
 
     companion object {

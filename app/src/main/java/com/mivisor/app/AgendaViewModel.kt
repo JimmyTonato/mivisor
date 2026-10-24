@@ -57,7 +57,11 @@ data class AgendaUi(
     /** Nombre de canal de la agenda → tus canales equivalentes. */
     val links: Map<String, List<Channel>> = emptyMap(),
     val indexedChannels: Int = 0
-)
+) {
+    /** Opciones reales (enlaces distintos) entre todos los canales que emiten [event]. */
+    fun optionCount(event: AgendaEvent): Int =
+        event.channels.flatMap { links[it.name].orEmpty() }.distinctBy { it.url }.size
+}
 
 class AgendaViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = AgendaRepository(File(application.cacheDir, "agenda"))
@@ -76,13 +80,18 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
 
     private var loadJob: Job? = null
     private var matcher: ChannelMatcher = ChannelMatcher(emptyList())
+    private var lastSources: List<SourceProfile> = emptyList()
+    private var indexJob: Job? = null
 
     val agendaUrl: String get() = prefs.agendaUrl.ifBlank { BuildConfig.AGENDA_URL }
 
     init {
         load()
         viewModelScope.launch {
-            sourceStore.items.collectLatest { sources -> rebuildIndex(sources) }
+            sourceStore.items.collectLatest { sources ->
+                lastSources = sources
+                rebuildIndex(sources)
+            }
         }
     }
 
@@ -102,6 +111,13 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
                 _ui.update { it.copy(loading = false, error = e.message ?: "No se pudo cargar la agenda") }
             }
         }
+    }
+
+    /** Relee tus códigos (desde caché) por si alguno trae enlaces nuevos desde la última vez. */
+    fun refreshIndex() {
+        if (lastSources.isEmpty()) return
+        indexJob?.cancel()
+        indexJob = viewModelScope.launch { rebuildIndex(lastSources) }
     }
 
     fun setDay(day: DayFilter) = update { it.copy(day = day) }
@@ -193,7 +209,14 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
                 null
             } ?: continue
             val catalog = withContext(Dispatchers.Default) { CatalogBuilder.build(result.items) }
-            catalog.sections.forEach { channels += it.channels }
+            catalog.sections.forEach { section ->
+                section.channels.forEach { ch ->
+                    channels += Channel(
+                        id = "${source.id}:${ch.id}", name = ch.name, url = ch.url, group = ch.group,
+                        kind = ch.kind, initials = ch.initials, tint = ch.tint, source = source.name
+                    )
+                }
+            }
         }
         matcher = withContext(Dispatchers.Default) { ChannelMatcher(channels) }
         _ui.update { it.copy(indexedChannels = channels.size) }
