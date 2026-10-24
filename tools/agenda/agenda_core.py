@@ -49,6 +49,9 @@ class Event:
     homeLogo: Optional[str] = None
     awayLogo: Optional[str] = None
     competitionLogo: Optional[str] = None
+    # Datos internos del proveedor (jornada, temporada, nombres completos…) para enriquecer el
+    # evento. NUNCA se escriben en agenda.json.
+    ref: dict = field(default_factory=dict, compare=False, repr=False)
 
 
 # --------------------------------------------------------------------------------------------
@@ -222,9 +225,10 @@ def apply_logos(events: Iterable[Event], logos: dict[str, dict[str, str]]) -> No
 class TvProvider:
     """
     SportsProvider → Event → TvProvider (opcional) → Event enriquecido → agenda.json.
-    Hoy no hay proveedor de TV fiable: no se añade ningún canal (nunca se inventan).
-    Un proveedor futuro solo debe añadir canales confirmados para cada evento concreto.
+    Esta implementación base no añade nada. Un proveedor de TV (tv_thesportsdb.py) solo añade
+    canales confirmados por una fuente real para cada evento concreto: nunca se inventan.
     """
+    log: list[str] = []
 
     def enrich(self, events: list[Event]) -> list[Event]:
         return events

@@ -215,7 +215,38 @@ class FootballData(Provider):
             homeLogo=home_team.get("crest"),
             awayLogo=away_team.get("crest"),
             competitionLogo=competition.get("emblem"),
+            ref={
+                "competitionCode": code,
+                "matchday": match.get("matchday"),
+                "season": season_label(match.get("season")),
+                "homeNames": team_names(home_team),
+                "awayNames": team_names(away_team),
+            },
         )
+
+
+def season_label(season: Any) -> Optional[str]:
+    """{"startDate": "2026-08-14", "endDate": "2027-05-23"} → "2026-2027" (formato TheSportsDB)."""
+    if not isinstance(season, dict):
+        return None
+    start, end = str(season.get("startDate") or ""), str(season.get("endDate") or "")
+    if len(start) < 4 or not start[:4].isdigit():
+        return None
+    if len(end) >= 4 and end[:4].isdigit() and end[:4] != start[:4]:
+        return f"{start[:4]}-{end[:4]}"
+    return start[:4]
+
+
+def team_names(team: Any) -> list[str]:
+    """Variantes del nombre de un equipo (corto, completo, siglas) para cruzar con otras fuentes."""
+    if not isinstance(team, dict):
+        return []
+    out = []
+    for key in ("shortName", "name", "tla"):
+        value = clean(team.get(key))
+        if value and value not in out:
+            out.append(value)
+    return out
 
 
 # --------------------------------------------------------------------------------------------

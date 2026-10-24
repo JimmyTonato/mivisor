@@ -15,6 +15,8 @@ import com.mivisor.app.data.StreamRepository.Mode
 import com.mivisor.app.data.sharedGson
 import com.mivisor.app.model.Agenda
 import com.mivisor.app.model.AgendaEvent
+import com.mivisor.app.model.AgendaFilters
+import com.mivisor.app.model.SubFilterOption
 import com.mivisor.app.model.Channel
 import com.mivisor.app.model.EventStatus
 import com.mivisor.app.model.SourceProfile
@@ -50,6 +52,15 @@ data class AgendaUi(
     val day: DayFilter = DayFilter.TODAY,
     val slot: TimeSlot = TimeSlot.ALL,
     val sport: String? = null,
+    /**
+     * Segundo nivel elegido por deporte ("futbol" → "CHAMPIONS"). Se recuerda mientras viva la
+     * pantalla: al volver a Fútbol se recupera la competición elegida. Sin entrada = "Todos".
+     */
+    val subFilters: Map<String, String> = emptyMap(),
+    /** Chips del segundo nivel para el deporte activo ("Todos" + competiciones con eventos). */
+    val subOptions: List<SubFilterOption> = emptyList(),
+    /** Subfiltro aplicado ahora mismo (null = "Todos"). */
+    val subKey: String? = null,
     val visible: List<AgendaEvent> = emptyList(),
     /** Destacados de hoy: en directo primero y luego las competiciones más vistas. */
     val featured: List<AgendaEvent> = emptyList(),
@@ -124,6 +135,11 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
     fun setSlot(slot: TimeSlot) = update { it.copy(slot = slot) }
     /** Pulsar el deporte activo lo desactiva (vuelve a "todos"). */
     fun toggleSport(sport: String) = update { it.copy(sport = if (it.sport == sport) null else sport) }
+    /** Competición (u otro subfiltro) del deporte activo; null = "Todos". Filtra en local, sin red. */
+    fun setSubFilter(key: String?) = update { state ->
+        val sport = state.sport ?: return@update state
+        state.copy(subFilters = if (key == null) state.subFilters - sport else state.subFilters + (sport to key))
+    }
 
     fun linksFor(channelName: String): List<Channel> = _ui.value.links[channelName].orEmpty()
 
@@ -154,7 +170,9 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
             val tomorrow = startOfDay(now, 1)
             val dayAfter = startOfDay(now, 2)
             val weekEnd = startOfDay(now, 8)
-            val bySport = agenda.events.filter { state.sport == null || it.sport == state.sport }
+            val subOptions = AgendaFilters.options(agenda.events, state.sport)
+            val subKey = AgendaFilters.effective(agenda.events, state.sport, state.subFilters)
+            val bySport = AgendaFilters.bySport(agenda.events, state.sport, subKey)
             val byDay = when (state.day) {
                 DayFilter.TODAY -> bySport.filter { it.startMillis in today until tomorrow }
                     .sortedBy { if (it.status(now) == EventStatus.FINISHED) 1 else 0 }
@@ -169,10 +187,16 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
             val featured = todayEvents
                 .sortedWith(compareBy<AgendaEvent>({ if (it.status(now) == EventStatus.LIVE) 0 else 1 }, { -priority(it) }, { it.startMillis }))
                 .take(3)
-            Computed(visible, featured, agenda.events.count { it.status(now) == EventStatus.LIVE }, buildLinks(agenda))
+            Computed(
+                visible, featured, agenda.events.count { it.status(now) == EventStatus.LIVE }, buildLinks(agenda),
+                subOptions, subKey
+            )
         }
         _ui.update {
-            it.copy(visible = computed.visible, featured = computed.featured, liveCount = computed.live, links = computed.links)
+            it.copy(
+                visible = computed.visible, featured = computed.featured, liveCount = computed.live, links = computed.links,
+                subOptions = computed.subOptions, subKey = computed.subKey
+            )
         }
     }
 
@@ -180,7 +204,9 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
         val visible: List<AgendaEvent>,
         val featured: List<AgendaEvent>,
         val live: Int,
-        val links: Map<String, List<Channel>>
+        val links: Map<String, List<Channel>>,
+        val subOptions: List<SubFilterOption>,
+        val subKey: String?
     )
 
     /** Más puntos = más interés para "Destacados". Ajustable sin tocar la UI. */

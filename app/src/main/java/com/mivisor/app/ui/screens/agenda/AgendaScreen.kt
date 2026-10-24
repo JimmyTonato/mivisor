@@ -46,6 +46,7 @@ import com.mivisor.app.DayFilter
 import com.mivisor.app.R
 import com.mivisor.app.TimeSlot
 import com.mivisor.app.model.AgendaEvent
+import com.mivisor.app.model.AgendaFilters
 import com.mivisor.app.model.Channel
 import com.mivisor.app.model.EventStatus
 import com.mivisor.app.model.SourceStatus
@@ -151,6 +152,7 @@ private fun AgendaHome(
                 SideFilters(ui, vm, firstFilter, Modifier.width(150.dp).fillMaxHeight())
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     DayHeader(ui, vm)
+                    SubFilterRow(ui, vm)
                     EventList(ui, listState, restoreFocusId, restore, onOpenEvent, compact = false, modifier = Modifier.weight(1f), vm = vm)
                 }
                 if (layout.expanded) RightColumn(ui, onOpenEvent, Modifier.width(220.dp).fillMaxHeight())
@@ -290,6 +292,21 @@ private fun CompactFilters(ui: AgendaUi, vm: AgendaViewModel, firstFocus: FocusR
             items(TimeSlot.values().toList(), key = { it.name }) { slot ->
                 FilterChip(slot.label, ui.slot == slot, { vm.setSlot(slot) })
             }
+        }
+        SubFilterRow(ui, vm)
+    }
+}
+
+/**
+ * Segundo nivel de filtros (hoy: competiciones de Fútbol). Solo aparece si el deporte activo
+ * tiene subfiltros. "Todos" va siempre primero; filtra en local, sin red.
+ */
+@Composable
+private fun SubFilterRow(ui: AgendaUi, vm: AgendaViewModel) {
+    if (!AgendaFilters.hasSubFilters(ui.sport) || ui.subOptions.isEmpty()) return
+    LazyRow(contentPadding = PaddingValues(6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(ui.subOptions, key = { "sub_${it.key ?: "all"}" }) { option ->
+            FilterChip(option.label, ui.subKey == option.key, { vm.setSubFilter(option.key) })
         }
     }
 }

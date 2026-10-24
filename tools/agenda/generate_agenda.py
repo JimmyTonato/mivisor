@@ -19,6 +19,10 @@ el workflow se detiene antes de publicar y la rama agenda-data conserva la últi
 
 Credenciales (solo variables de entorno / GitHub Secrets):
   FOOTBALL_DATA_TOKEN, LIVE_TENNIS_API_KEY, BLACKTOP_API_KEY   (Jolpica no necesita clave)
+  THESPORTSDB_API_KEY (opcional; sin ella se usa la clave pública gratuita de TheSportsDB)
+
+Canales de TV: tv_thesportsdb.py añade los broadcasters de TheSportsDB (de cualquier país) a los
+partidos de fútbol. Es independiente: si falla, la agenda se publica igual.
 
 Uso:
   python generate_agenda.py --out agenda.json [--previous previous.json] [--debug-dir debug/]
@@ -39,6 +43,7 @@ from agenda_core import (  # noqa: E402
     previous_events, utc_iso,
 )
 from providers import ALL_PROVIDERS, INVALID_RESPONSE, Http, Provider, ProviderError  # noqa: E402
+from tv_thesportsdb import TheSportsDbTv  # noqa: E402
 
 EXIT_OK = 0
 EXIT_ALL_FAILED = 3
@@ -105,7 +110,13 @@ def generate(
 
     # Ids únicos (por si un proveedor repite un evento).
     unique = list({e.id: e for e in events}.values())
-    unique = (tv or TvProvider()).enrich(unique)
+    # Canales de TV: enriquecimiento opcional. Si falla, los eventos se publican igual.
+    tv = tv or TvProvider()
+    try:
+        unique = tv.enrich(unique)
+    except Exception as exc:  # noqa: BLE001
+        log.append(f"TV: FAILED - {type(exc).__name__} - events published without new channels")
+    log.extend(getattr(tv, "log", []) or [])
     if logos:
         apply_logos(unique, logos)
     return Result(build_agenda(unique, now, stats), stats, log)
@@ -141,6 +152,7 @@ def main(argv: Optional[list[str]] = None, env: Optional[Mapping[str, str]] = No
     result = generate(
         [cls() for cls in ALL_PROVIDERS], http, now, env,
         previous=previous, logos=load_logo_overrides(args.logos),
+        tv=TheSportsDbTv(http, env, now, previous),
     )
     for line in result.log:
         print(line, file=sys.stderr)

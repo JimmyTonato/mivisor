@@ -320,7 +320,11 @@ private fun ChannelBlock(
             Box(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Txt(channel.name, NeonType.H3)
-                Txt(listOfNotNull("Deportes", competition).joinToString("  |  "), NeonType.Small)
+                // En móvil no caben los chips de la derecha: el país (note) va en esta línea.
+                Txt(
+                    listOfNotNull("Deportes", competition, channel.note.takeIf { compact }).joinToString("  |  "),
+                    NeonType.Small
+                )
             }
             if (!compact) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 channel.dial?.let { InfoChip(it.replace(" ", " · ")) }

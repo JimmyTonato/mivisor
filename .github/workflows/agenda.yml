@@ -8,6 +8,7 @@ name: Agenda deportiva
 #
 # Secrets necesarios (Settings → Secrets and variables → Actions):
 #   FOOTBALL_DATA_TOKEN, LIVE_TENNIS_API_KEY, BLACKTOP_API_KEY
+# Opcional (canales de TV): THESPORTSDB_API_KEY. Sin él se usa la clave pública gratuita.
 on:
   schedule:
     - cron: "17 * * * *"   # una vez por hora, en el minuto 17
@@ -27,7 +28,7 @@ concurrency:
 jobs:
   agenda:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15   # incluye ~3 min de consultas espaciadas a TheSportsDB
     steps:
       - uses: actions/checkout@v4
 
@@ -54,6 +55,7 @@ jobs:
           FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
           LIVE_TENNIS_API_KEY: ${{ secrets.LIVE_TENNIS_API_KEY }}
           BLACKTOP_API_KEY: ${{ secrets.BLACKTOP_API_KEY }}
+          THESPORTSDB_API_KEY: ${{ secrets.THESPORTSDB_API_KEY }}
         run: python tools/agenda/generate_agenda.py --out agenda.json --previous previous.json --debug-dir debug
 
       # Respuestas crudas de los proveedores (sin cabeceras ni claves): sirven para ajustar los
