@@ -42,6 +42,12 @@ import com.mivisor.app.ui.neon.stadiumLights
 import com.mivisor.app.ui.screens.CatalogScreen
 import com.mivisor.app.ui.screens.HistoryScreen
 import com.mivisor.app.ui.screens.ServicesScreen
+import com.mivisor.app.QuickServicesViewModel
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mivisor.app.ui.screens.SettingsScreen
 import com.mivisor.app.ui.screens.SourcesScreen
 import com.mivisor.app.ui.screens.agenda.AgendaScreen
@@ -117,6 +123,23 @@ fun MiVisorApp(vm: MainViewModel) {
         runCatching { tabFocus.requestFocus() }
     }
 
+    // Servicios rápidos (Ace Stream, VPN/WARP): estado real al abrir y al volver a MiVisor (p. ej. tras
+    // autorizar la VPN), sin que el usuario tenga que pulsar nada. Al salir se sueltan receptores y enlaces.
+    val quick: QuickServicesViewModel = viewModel()
+    val quickUi by quick.ui.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> quick.onForeground()
+                Lifecycle.Event.ON_STOP -> quick.onBackground()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Atrás: cualquier pantalla → Canales; en Canales, el sistema (salir).
     BackHandler(enabled = screen != Screen.CATALOG) {
         screen = if (screen == Screen.SERVICES) Screen.SETTINGS else Screen.CATALOG
@@ -150,7 +173,9 @@ fun MiVisorApp(vm: MainViewModel) {
                             onOptions = { optionsFor = it },
                             onAddSource = { sourceDialog = SourceDialogState(SourceDialogMode.ADD) },
                             onOpenCode = { sourceDialog = SourceDialogState(SourceDialogMode.OPEN_CODE) },
-                            onManage = { screen = Screen.SOURCES }
+                            onManage = { screen = Screen.SOURCES },
+                            services = quickUi,
+                            onServiceOk = quick::onOk
                         )
                         Screen.AGENDA -> AgendaScreen(onOpenChannel = { openChannel(it) })
                         Screen.HISTORY -> HistoryScreen(

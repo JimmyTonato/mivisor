@@ -59,6 +59,28 @@ jobs:
       - name: Compilar APK release (R8)
         run: ./gradlew assembleRelease lintDebug --stacktrace
 
+      # Servicios rápidos: MiVisor solo puede controlar la WARP modificada si la release está firmada con
+      # la MISMA clave (permiso "signature" com.mivisor.permission.CONTROL_WARP). Se comprueba la huella.
+      # Huella esperada: la del certificado CN=MiVisor del cliente de prueba (se puede cambiar con la
+      # variable de repositorio WARP_SIGNER_SHA256 si WARP se firma con otra clave).
+      - name: Comprobar firma compatible con WARP
+        env:
+          WARP_SIGNER_SHA256: ${{ vars.WARP_SIGNER_SHA256 || 'B2:9F:F0:71:C5:03:95:D6:6F:17:CE:3A:5B:C2:42:A6:EF:C0:04:88:F6:57:F5:43:7E:51:5D:C7:24:E0:46:32' }}
+        run: |
+          APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          GOT=$("$APKSIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk \
+                | grep -m1 "certificate SHA-256 digest" | awk '{print $NF}' | tr 'a-f' 'A-F')
+          WANT=$(echo "$WARP_SIGNER_SHA256" | tr -d ': ' | tr 'a-f' 'A-F')
+          echo "Firma de la release: $GOT"
+          if [ "$GOT" = "$WANT" ]; then
+            echo "OK: la release puede controlar WARP (misma clave que la WARP modificada)"
+          elif [ -n "$SIGNING_KEYSTORE_PATH" ]; then
+            echo "::error::La release está firmada con una clave distinta de la de WARP: no podrá controlarla. Revisa SIGNING_KEYSTORE_BASE64 o la variable WARP_SIGNER_SHA256."
+            exit 1
+          else
+            echo "::warning::Release firmada con la clave de desarrollo (app/debug.keystore): funcionará todo menos el control de WARP. Configura SIGNING_KEYSTORE_BASE64 con la clave de MiVisor."
+          fi
+
       - name: Preparar APK
         id: apk
         run: |

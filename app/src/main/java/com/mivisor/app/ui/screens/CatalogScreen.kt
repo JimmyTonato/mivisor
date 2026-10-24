@@ -57,6 +57,10 @@ import com.mivisor.app.ui.neon.NeonType
 import com.mivisor.app.ui.neon.Overline
 import com.mivisor.app.ui.neon.ScreenHero
 import com.mivisor.app.ui.neon.SideItem
+import com.mivisor.app.ui.neon.QuickServicesSide
+import com.mivisor.app.ui.neon.QuickServiceChip
+import com.mivisor.app.QuickServicesUi
+import com.mivisor.app.services.RowAction
 import com.mivisor.app.ui.neon.neonPanel
 
 /**
@@ -75,7 +79,9 @@ fun CatalogScreen(
     onOptions: (Channel) -> Unit,
     onAddSource: () -> Unit,
     onOpenCode: () -> Unit,
-    onManage: () -> Unit
+    onManage: () -> Unit,
+    services: QuickServicesUi? = null,
+    onServiceOk: (RowAction) -> Unit = {}
 ) {
     val layout = LocalAppLayout.current
     val firstCard = remember { FocusRequester() }
@@ -117,7 +123,7 @@ fun CatalogScreen(
         }
 
         if (layout.compact) {
-            CategoryChips(sources, state.activeSourceId, categoryFocus, onSelectSource, onAddSource, onOpenCode, onManage)
+            CategoryChips(sources, state.activeSourceId, categoryFocus, onSelectSource, onAddSource, onOpenCode, onManage, services, onServiceOk)
             Content(
                 state, sources.isNotEmpty(), firstCard, primaryAction, onRefresh, onOpen, onOptions, onAddSource, onOpenCode,
                 cardWidth = 150.dp, cardHeight = 96.dp,
@@ -127,7 +133,7 @@ fun CatalogScreen(
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CategoryColumn(
                     sources, state.activeSourceId, categoryFocus, onSelectSource, onAddSource, onOpenCode, onManage,
-                    Modifier.width(layout.sideWidth).fillMaxHeight()
+                    Modifier.width(layout.sideWidth).fillMaxHeight(), services, onServiceOk
                 )
                 Content(
                     state, sources.isNotEmpty(), firstCard, primaryAction, onRefresh, onOpen, onOptions, onAddSource, onOpenCode,
@@ -169,10 +175,14 @@ private fun CategoryColumn(
     onAdd: () -> Unit,
     onOpenCode: () -> Unit,
     onManage: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
+    services: QuickServicesUi?,
+    onServiceOk: (RowAction) -> Unit
 ) {
     val focusTarget = activeId ?: sources.firstOrNull()?.id
     Column(modifier) {
+        // Servicios rápidos ANTES de las categorías: Ace Stream → VPN/WARP → primera categoría (D-pad ↑↓).
+        if (services != null) QuickServicesSide(services, onServiceOk)
         Overline("Categorías", Modifier.padding(start = 8.dp, bottom = 4.dp))
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth().focusRestorer(),
@@ -210,10 +220,16 @@ private fun CategoryChips(
     onSelect: (SourceProfile) -> Unit,
     onAdd: () -> Unit,
     onOpenCode: () -> Unit,
-    onManage: () -> Unit
+    onManage: () -> Unit,
+    services: QuickServicesUi?,
+    onServiceOk: (RowAction) -> Unit
 ) {
     val focusTarget = activeId ?: sources.firstOrNull()?.id
     LazyRow(contentPadding = PaddingValues(6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (services != null) {
+            item(key = "__ace") { QuickServiceChip(services.ace, onServiceOk) }
+            item(key = "__warp") { QuickServiceChip(services.warp, onServiceOk) }
+        }
         items(sources, key = { it.id }) { source ->
             FilterChip(
                 source.name, source.id == activeId, { onSelect(source) },

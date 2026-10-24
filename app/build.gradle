@@ -36,6 +36,14 @@ android {
     buildFeatures {
         compose true
         buildConfig true
+        aidl true   // interfaz oficial de Ace Stream Engine (src/main/aidl/org/acestream/…)
+    }
+
+    // Releases firmadas con la clave propia (la de MiVisor/WARP): declaran también el permiso de control
+    // de WARP, como el cliente de prueba, para que el orden de instalación no importe. Con la clave de
+    // desarrollo NO se declara (si no, Android rechazaría instalar una de las dos apps por duplicado).
+    if (releaseKeystore) {
+        sourceSets.release.manifest.srcFile 'src/warpSigned/AndroidManifest.xml'
     }
 
     signingConfigs {

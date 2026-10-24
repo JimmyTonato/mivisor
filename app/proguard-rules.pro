@@ -10,3 +10,8 @@
     public static int v(...);
     public static int d(...);
 }
+
+# Ace Stream Engine (AIDL oficial): los descriptores del Binder deben coincidir con el servicio de Ace Stream.
+-keep class org.acestream.engine.service.v0.** { *; }
+-keep class org.acestream.engine.ServiceClient { *; }
+-keep interface org.acestream.engine.ServiceClient$Callback { *; }

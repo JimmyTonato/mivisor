@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solo en releases firmadas con la clave propia (ver app/build.gradle): mismo permiso y nivel que la WARP
+     modificada y el cliente de prueba. Nunca se rebaja a "normal". -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission
+        android:name="com.mivisor.permission.CONTROL_WARP"
+        android:protectionLevel="signature" />
+</manifest>

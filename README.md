@@ -214,6 +214,73 @@ python tools/agenda/generate_agenda.py --out out/agenda.json --state-dir state -
   - Canales: `td.canales > ul.listaCanales > li[title]`, con dial "M54 O110" o solo números de Movistar ("63", "8 y 50").
 - Cada ejecución guarda además el HTML completo en el artifact `agenda-debug-N`.
 
+## Servicios rápidos: Ace Stream y VPN/WARP
+
+En lo alto de la columna lateral (TV/tablet), **antes de las categorías**, hay dos filas. En móvil son los dos primeros chips de la fila de categorías.
+
+```
+SERVICIOS
+● Ace Stream        Motor activo
+● VPN / WARP   ON   Conectada
+──────────────
+Categorías…
+```
+
+- **Mando y foco:** cada fila es un único control enfocable; no hay interruptores pequeños aparte. OK hace lo que indica la fila: iniciar, ON/OFF, autorizar o abrir WARP. El orden con el D-pad es Ace Stream → VPN/WARP → primera categoría.
+- **Indicadores:** ● correcto (verde) · ○ desconectada (neutro) · ! requiere atención (ámbar) o error (rojo) · spinner mientras dura una operación.
+- **Cuándo se comprueba el estado:** al abrir MiVisor y al volver a primer plano (`ON_RESUME`). No hay sondeo permanente. En segundo plano se sueltan el receptor de WARP y el enlace con Ace Stream; ninguno de los dos se apaga por ello.
+- **Código:** `services/QuickServices.kt` (estados, protocolo y textos, con tests), `AceStreamEngineController`, `WarpController`, `QuickServicesViewModel` y `ui/neon/QuickServicesPanel.kt`. La UI nunca envía broadcasts.
+
+### Ace Stream Engine (integración oficial)
+
+- **Cliente oficial:** `ServiceClient` y la AIDL de [acestream-engine-client](https://github.com/acestream/acestream-engine-client) (MIT), integrados como código fuente en `org.acestream.engine…` (`buildFeatures.aidl true`).
+- **Detección:** `ServiceClient.getServicePackage()` elige la app con mayor versión entre `org.acestream.media`, `.media.atv`, `.core`, `.core.atv` u otra que exponga el servicio. Nunca se miran procesos. Los paquetes están en `<queries>`.
+- **Al abrir MiVisor no se arranca el motor.** Solo se consulta `GET /webui/api/service?method=get_version` en el último puerto HTTP que dio el servicio (6878 si nunca lo dio). Si responde, "Motor activo"; si no, "Motor detenido".
+- **Iniciar:**
+  1. `ServiceClient.startEngine()`.
+  2. Llega `onConnected` con el **puerto HTTP real** del servicio.
+  3. Se repite `get_version` en ese puerto hasta que responda (READY con evidencia real) o pasen 15 s (ERROR, "Ace Stream Engine no responde").
+  4. Si el servicio falla, "No se pudo iniciar" con REINTENTAR.
+
+  Nada bloquea el hilo principal.
+- **Apagar:** Ace Stream **no ofrece un método oficial y verificable** para parar el motor: la AIDL no tiene `stopEngine` y la HTTP API no documenta un apagado. Por eso **no hay interruptor OFF**. `release()` solo suelta el enlace del cliente, no apaga el motor.
+- **Red local:** `network_security_config.xml` permite HTTP sin cifrar solo a `127.0.0.1` y `localhost`; todo lo demás sigue siendo HTTPS.
+- **Para la reproducción:** `AceStreamEngineController.ensureReady()` (READY → continuar; detenido → iniciar y esperar). Está listo para usarse, pero aún no se ha conectado al flujo de reproducción.
+
+### VPN / WARP (WARP modificada)
+
+Se usa el **mismo protocolo** que `MiVisor-WARP-TestClient-1.2` (`WarpControlContract`); no hay un segundo protocolo.
+
+| | |
+|---|---|
+| Paquete | `com.cloudflare.onedotonedotonedotone` (en `<queries>`) |
+| Permiso | `com.mivisor.permission.CONTROL_WARP` (`signature`) |
+| Estado | ContentProvider `content://com.cloudflare.onedotonedotonedotone.mivisor.control`, método `STATUS`. Si no está disponible, broadcast ordenado `com.mivisor.warp.STATUS` |
+| Comandos | broadcasts ordenados `com.mivisor.warp.CONNECT` (`request_permission=false`) y `com.mivisor.warp.DISCONNECT`, con `request_id`; el ACK llega en los *result extras* |
+| Transiciones | `com.mivisor.warp.STATE_CHANGED`, registrado exigiendo `CONTROL_WARP` al emisor (exported en Android 13+) |
+| Autorización | `com.mivisor.warp.control.MiVisorVpnPermissionActivity` con `connect_after_grant=true` |
+
+- **Estados:** DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING, PERMISSION_REQUIRED y ERROR. Además: no instalada, sin permiso por firma y "requiere configuración" (detalles `MISSING_CERTIFICATE`, `SETUP_FAILED`, `FGS_START_NOT_ALLOWED` → botón ABRIR WARP).
+- **Conectar y desconectar:** se muestra CONNECTING/DISCONNECTING y se espera la confirmación por `STATE_CHANGED`. Nunca se da por hecho solo por haber enviado el comando. Si no llega la confirmación (45 s conectando, 20 s desconectando), se vuelve a consultar STATUS; si sigue igual, se muestra error. Nunca hay un spinner infinito.
+- **Autorización VPN:**
+  - Si falta (`PERMISSION_REQUIRED`, `VPN_CONSENT_MISSING` o `vpn_permission_granted=false`), la fila muestra AUTORIZAR VPN.
+  - Ese botón abre la Activity de WARP, que pide el consentimiento **oficial de Android** (`VpnService.prepare`). MiVisor no lo acepta por ti ni usa Accessibility.
+  - Al volver, `onResume` consulta STATUS automáticamente: DISCONNECTED → OFF listo para usar; CONNECTED (por `connect_after_grant`) → ON.
+
+### Firma: imprescindible para controlar WARP
+
+`CONTROL_WARP` es un permiso **signature**. MiVisor solo lo obtiene si está firmado con **la misma clave que la WARP modificada**: el certificado `CN=MiVisor, O=MiVisor`, SHA-256 `B2:9F:F0:71:C5:03:95:D6:6F:17:CE:3A:5B:C2:42:A6:EF:C0:04:88:F6:57:F5:43:7E:51:5D:C7:24:E0:46:32`, el mismo que el cliente de prueba.
+
+- **Configurar la clave:** sin secrets, el proyecto firma con `app/debug.keystore` (CN=Android Debug), que **no** es compatible. Hay que poner la clave de MiVisor en `SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS` y `SIGNING_KEY_PASSWORD`.
+- **Comprobación en CI:** `build.yml` verifica la huella de la release con `apksigner`.
+  - Si coincide, OK.
+  - Si hay clave propia pero no coincide, la build falla.
+  - Con la clave de desarrollo, aviso: todo funciona menos WARP.
+  - Si WARP se firma con otra clave, cambia la variable de repositorio `WARP_SIGNER_SHA256`.
+- **Declaración del permiso:** solo las releases con clave propia declaran el `<permission>` (`app/src/warpSigned`), igual que el cliente de prueba, para que el orden de instalación no importe. Con la clave de desarrollo no se declara, para evitar el conflicto de permiso duplicado.
+- **Cambiar de clave obliga a desinstalar:** Android no permite actualizar una app firmada con otra clave, así que habrá que desinstalar la versión firmada con la clave de desarrollo. Se pierden las categorías e historial guardados.
+- **Si la firma no coincide:** la fila muestra "Sin permiso de control (firma)" y queda registrado en el log (`MiVisor/Services`). Nunca se rebaja el permiso para "hacerlo funcionar".
+
 ## Mando
 
 | Tecla | Acción |
