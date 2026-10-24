@@ -37,6 +37,11 @@ class PlayerPreferences(context: Context) {
         get() = prefs.getBoolean("ui_anim", !lowRam)
         set(value) = prefs.edit().putBoolean("ui_anim", value).apply()
 
+    /** URL de agenda.json. Vacía = la del repositorio con el que se compiló (BuildConfig.AGENDA_URL). */
+    var agendaUrl: String
+        get() = prefs.getString("agenda_url", null).orEmpty()
+        set(value) = prefs.edit().putString("agenda_url", value.trim()).apply()
+
     fun preferredPackage(name: String?, group: String?, scheme: String?): String? = listOfNotNull(
         name?.let { prefs.getString("app_n_$it", null) },
         group?.let { prefs.getString("app_g_$it", null) },

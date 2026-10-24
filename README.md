@@ -15,6 +15,40 @@ código → <código>.elcano.top → DNS TXT → (Base64 → GZIP) → JSON → 
 - **Reproductores**: HLS, vídeo, AceStream (con plantilla HTTP opcional), magnet (plantilla remota opcional), TVGram y Telegram. "Abrir con…" permite recordar la app por canal, por grupo o por tipo de enlace.
 - **Deep links**: `mylinkspaste://CODIGO` y `mivisor://CODIGO`.
 
+## Agenda deportiva
+
+Partidos del día y en qué canales se emiten, con datos de [futbolenlatv.es](https://www.futbolenlatv.es/).
+
+```
+futbolenlatv.es ──(GitHub Actions cada 30 min)──▶ tools/agenda/scrape_agenda.py
+        ──▶ agenda.json en la rama `agenda-data` ──▶ la app lo descarga (pocos KB, con ETag y caché)
+```
+
+- **Por qué en Actions y no en la TV**: la TV solo descarga un JSON pequeño, sin analizar HTML (menos RAM). Si la web cambia, se corrige el scraper sin publicar una nueva versión de la app, y la fuente recibe 4 peticiones cada 30 min en vez de una por cada TV.
+- **Scraper**: tablas HTML (fecha, hora, competición, equipos, canales y dial) con JSON-LD como respaldo. Respeta `robots.txt`, descarta los canales "Bar" y "por confirmar", y falla de forma visible si no extrae nada (se conserva la última agenda publicada).
+- **Depuración**: cada ejecución guarda el HTML descargado como artifact (`agenda-debug-N`, 3 días).
+- **URL**: la app la recibe al compilarse en Actions (`BuildConfig.AGENDA_URL`, a partir de `GITHUB_REPOSITORY`). Se puede cambiar en Ajustes → Agenda deportiva. El repositorio debe ser **público** para que `raw.githubusercontent.com` sirva el JSON.
+- **Diseño**: pantalla completa con estilo propio (azul noche, foco cian con halo, columnas de filtros, destacados y "Más partidos de hoy"). Código en `ui/screens/agenda/`. El halo se dibuja con contornos translúcidos, sin sombras ni desenfoques, para que vaya fluido en TVs modestas.
+- **Logos** (escudos, competiciones y canales): se usan los de la web si los trae y, por encima de ellos, los de `tools/agenda/logos.json` (nombre → URL PNG/WebP), que controlas tú. La app los carga con un cargador propio (`RemoteImage`): los reduce al tamaño en que se pintan y usa caché en memoria (máx. 6 MB) y en disco. Sin logo se muestran las iniciales sobre un escudo de color.
+- **"Abrir canal"**: cada canal de la agenda se compara con los canales de tus categorías (`ChannelMatcher`: sin acentos, con alias como M+ → Movistar y sin etiquetas HD/FHD/1080…). Es conservador: "DAZN" a secas no se enlaza, y "DAZN LaLiga" no enlaza con "DAZN LaLiga 2".
+
+### Formato de `agenda.json` (v1)
+
+```json
+{
+  "version": 1, "source": "futbolenlatv.es", "generatedAt": "2026-10-24T10:00:00Z",
+  "timezone": "Europe/Madrid",
+  "events": [{
+    "id": "3747736f255c", "sport": "futbol", "competition": "La Liga EA Sports",
+    "start": "2026-10-24T18:00:00+02:00", "home": "Real Madrid", "away": "Sevilla",
+    "title": "Real Madrid - Sevilla", "homeLogo": "https://…", "awayLogo": "https://…",
+    "channels": [{"name": "DAZN LaLiga", "dial": "M55 O113"}, {"name": "DAZN", "note": "Ver en directo"}]
+  }]
+}
+```
+
+Probar el scraper en local: `python tools/agenda/scrape_agenda.py --out agenda.json --debug-dir debug` · tests: `python -m unittest discover -s tools/agenda`.
+
 ## Mando
 
 | Tecla | Acción |

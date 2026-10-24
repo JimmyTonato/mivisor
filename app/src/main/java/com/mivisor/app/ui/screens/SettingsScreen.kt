@@ -44,6 +44,7 @@ fun SettingsScreen(
     var aceTemplate by remember { mutableStateOf(prefs.customAceTemplate.ifBlank { BuildConfig.ACESTREAM_TEMPLATE }) }
     var magnetEnabled by remember { mutableStateOf(prefs.customMagnetEnabled) }
     var magnetTemplate by remember { mutableStateOf(prefs.customMagnetTemplate.ifBlank { BuildConfig.MAGNET_TEMPLATE }) }
+    var agendaUrl by remember { mutableStateOf(prefs.agendaUrl) }
 
     ScreenScaffold(title = "Ajustes", subtitle = "Mi Visor ${BuildConfig.VERSION_NAME}") {
         Column(
@@ -93,6 +94,15 @@ fun SettingsScreen(
                     keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
                 )
             }
+
+            SectionLabel("Agenda deportiva", Modifier.padding(top = 12.dp))
+            TvTextField(
+                agendaUrl,
+                { agendaUrl = it; prefs.agendaUrl = it },
+                "URL de agenda.json (vacío = la de tu repositorio)",
+                placeholder = BuildConfig.AGENDA_URL.ifBlank { "https://raw.githubusercontent.com/usuario/repo/agenda-data/agenda.json" },
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
+            )
 
             SectionLabel("Rendimiento", Modifier.padding(top = 12.dp))
             ToggleRow(

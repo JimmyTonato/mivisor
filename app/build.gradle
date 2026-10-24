@@ -8,6 +8,9 @@ plugins {
 // El desplazamiento (1000) garantiza que la v4 actualiza encima de cualquier build de la v3.
 def runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInteger()
 def releaseKeystore = System.getenv("SIGNING_KEYSTORE_PATH")
+// URL de la agenda publicada por .github/workflows/agenda.yml (rama agenda-data del mismo repo).
+def repo = System.getenv("GITHUB_REPOSITORY")
+def agendaUrl = repo ? "https://raw.githubusercontent.com/${repo}/agenda-data/agenda.json" : ""
 
 android {
     namespace 'com.mivisor.app'
@@ -27,6 +30,7 @@ android {
         buildConfigField "String", "STREAM_DOMAIN", '"elcano.top"'
         buildConfigField "String", "ACESTREAM_TEMPLATE", '"http://127.0.0.1:6878/ace/getstream?id={id}"'
         buildConfigField "String", "MAGNET_TEMPLATE", '"http://remoto/add?uri={id}"'
+        buildConfigField "String", "AGENDA_URL", "\"${agendaUrl}\""
     }
 
     buildFeatures {

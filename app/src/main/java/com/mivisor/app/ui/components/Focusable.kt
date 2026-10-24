@@ -19,6 +19,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -58,6 +63,11 @@ fun TvClickable(
     borderColor: Color = Color.Transparent,
     focusedScale: Float = 1f,
     borderWidth: Dp = 1.dp,
+    /** Borde al enfocar (estilo "neón" de la agenda). Transparente = sin borde. */
+    focusedBorderColor: Color = Color.Transparent,
+    /** Halo exterior al enfocar; necesita el radio de esquina para dibujarlo sin sombras. */
+    glowColor: Color = Color.Transparent,
+    glowCornerRadius: Dp = 12.dp,
     contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable BoxScope.(focused: Boolean) -> Unit
 ) {
@@ -130,16 +140,37 @@ fun TvClickable(
                 )
             }
             .then(if (enabled) Modifier else Modifier.alpha(0.4f))
+            .then(
+                // Halo con 3 contornos translúcidos: mismo efecto que un "glow" sin coste de sombras/blur.
+                if (focused && glowColor != Color.Transparent) Modifier.drawBehind {
+                    val r = glowCornerRadius.toPx()
+                    GLOW_STEPS.forEach { (spreadDp, alpha) ->
+                        val spread = spreadDp.dp.toPx()
+                        drawRoundRect(
+                            color = glowColor.copy(alpha = alpha),
+                            topLeft = Offset(-spread, -spread),
+                            size = Size(size.width + spread * 2, size.height + spread * 2),
+                            cornerRadius = CornerRadius(r + spread),
+                            style = Stroke(width = 3.dp.toPx())
+                        )
+                    }
+                } else Modifier
+            )
             .background(if (focused) focusedColor else color, shape)
             .then(
-                if (!focused && borderColor != Color.Transparent) Modifier.border(borderWidth, borderColor, shape)
-                else Modifier
+                when {
+                    focused && focusedBorderColor != Color.Transparent -> Modifier.border(2.dp, focusedBorderColor, shape)
+                    !focused && borderColor != Color.Transparent -> Modifier.border(borderWidth, borderColor, shape)
+                    else -> Modifier
+                }
             ),
         contentAlignment = contentAlignment
     ) {
         content(focused)
     }
 }
+
+private val GLOW_STEPS = listOf(2f to 0.45f, 5f to 0.20f, 8f to 0.08f)
 
 /** ~0,5 s a la cadencia de repetición típica de los mandos (≈ 50 ms). */
 private const val LONG_PRESS_REPEATS = 10

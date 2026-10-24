@@ -1,0 +1,13 @@
+{
+  "_ayuda": "Logos propios: nombre exacto (sin importar mayúsculas/acentos) → URL de imagen PNG/WebP. Tienen prioridad sobre los de la web.",
+  "teams": {
+    "Real Madrid": "",
+    "Sevilla": ""
+  },
+  "competitions": {
+    "La Liga EA Sports": ""
+  },
+  "channels": {
+    "DAZN LaLiga": ""
+  }
+}

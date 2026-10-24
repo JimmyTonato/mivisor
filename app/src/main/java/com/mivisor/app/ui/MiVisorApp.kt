@@ -53,6 +53,7 @@ import com.mivisor.app.ui.components.SourceDialog
 import com.mivisor.app.ui.components.SourceDialogMode
 import com.mivisor.app.ui.components.TvClickable
 import com.mivisor.app.ui.components.Txt
+import com.mivisor.app.ui.screens.agenda.AgendaScreen
 import com.mivisor.app.ui.screens.CatalogScreen
 import com.mivisor.app.ui.screens.HistoryScreen
 import com.mivisor.app.ui.screens.SettingsScreen
@@ -62,7 +63,7 @@ import com.mivisor.app.ui.theme.LocalAnimations
 import com.mivisor.app.ui.theme.Palette
 import com.mivisor.app.ui.theme.Type
 
-private enum class Screen { CATALOG, HISTORY, SOURCES, SETTINGS }
+private enum class Screen { CATALOG, AGENDA, HISTORY, SOURCES, SETTINGS }
 
 private class SourceDialogState(val mode: SourceDialogMode, val source: SourceProfile? = null)
 
@@ -122,9 +123,20 @@ fun MiVisorApp(vm: MainViewModel) {
         focusRail()
     }
 
+    // Al salir de la agenda (pantalla completa) el menú vuelve a existir: darle el foco tras pintarse.
+    var previousScreen by remember { mutableStateOf(screen) }
+    LaunchedEffect(screen) {
+        if (previousScreen == Screen.AGENDA && screen != Screen.AGENDA) {
+            repeat(2) { withFrameNanos { } }
+            focusRail()
+        }
+        previousScreen = screen
+    }
+
     CompositionLocalProvider(LocalAnimations provides animations) {
+      Box(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxSize().background(Palette.Bg)) {
-            Rail(
+            if (screen != Screen.AGENDA) Rail(
                 sources = sources,
                 activeSourceId = ui.activeSourceId.takeIf { screen == Screen.CATALOG },
                 screen = screen,
@@ -173,6 +185,7 @@ fun MiVisorApp(vm: MainViewModel) {
                         onDelete = vm::removeSource,
                         onAdd = { sourceDialog = SourceDialogState(SourceDialogMode.ADD) }
                     )
+                    Screen.AGENDA -> Unit // se pinta a pantalla completa, más abajo
                     Screen.SETTINGS -> SettingsScreen(
                         prefs = launcher.preferences,
                         animations = animations,
@@ -185,6 +198,16 @@ fun MiVisorApp(vm: MainViewModel) {
                 }
             }
         }
+
+        // Agenda deportiva: pantalla completa con su propio diseño (sin el menú lateral).
+        if (screen == Screen.AGENDA) {
+            AgendaScreen(
+                onOpenChannel = { openChannel(it) },
+                onExit = { screen = Screen.CATALOG },
+                onSettings = { screen = Screen.SETTINGS }
+            )
+        }
+      }
 
         sourceDialog?.let { dialog ->
             SourceDialog(
@@ -269,7 +292,9 @@ private fun Rail(
             .focusRestorer()
     ) {
         Brand()
-        Box(Modifier.height(26.dp))
+        Box(Modifier.height(22.dp))
+        RailItem("Agenda deportiva", active = screen == Screen.AGENDA, icon = R.drawable.ic_calendar, onClick = { onScreen(Screen.AGENDA) })
+        Box(Modifier.height(14.dp))
         SectionLabel("Categorías", Modifier.padding(start = 12.dp, bottom = 8.dp))
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
