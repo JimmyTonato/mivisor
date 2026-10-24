@@ -1,6 +1,9 @@
 package com.mivisor.app.model
 
-/** Agenda deportiva publicada por tools/agenda/scrape_agenda.py (agenda.json, versión 1). */
+/**
+ * Agenda deportiva publicada por tools/agenda/generate_agenda.py (agenda.json, versión 1).
+ * La app no sabe qué proveedor generó cada evento: solo lee el formato común.
+ */
 
 class AgendaChannel(
     val name: String,
@@ -30,7 +33,8 @@ class AgendaEvent(
         val duration = when (sport) {
             "baloncesto" -> 150L
             "tenis" -> 180L
-            "motor" -> 120L
+            "formula1", "motor" -> 120L
+            "motogp" -> 60L
             else -> 120L
         } * 60_000L
         return when {
@@ -43,10 +47,38 @@ class AgendaEvent(
 
 enum class EventStatus { UPCOMING, LIVE, FINISHED }
 
+/** Estado de la fuente de datos de un deporte ("stats" de agenda.json). */
+enum class SourceStatus { OK, STALE, UNAVAILABLE }
+
+class SportHealth(
+    val status: SourceStatus,
+    /** Última actualización correcta (epoch ms) o null si no se conoce. */
+    val lastSuccess: Long?
+)
+
 class Agenda(
     val generatedAt: Long,
     val source: String,
-    val events: List<AgendaEvent>
+    val events: List<AgendaEvent>,
+    /** Estado por deporte ("futbol", "tenis"…). Vacío si la agenda no trae "stats". */
+    val health: Map<String, SportHealth> = emptyMap()
 ) {
     val sports: List<String> by lazy { events.map { it.sport }.distinct() }
+
+    /** Deportes cuya agenda no se ha podido actualizar (stale) o cargar (unavailable). */
+    val problems: Map<String, SourceStatus> by lazy {
+        health.filterValues { it.status != SourceStatus.OK }.mapValues { it.value.status }
+    }
+
+    /** Avisos a mostrar: solo el del deporte filtrado, o todos los problemáticos con "Todos". */
+    fun notices(sportFilter: String?): List<Pair<String, SourceStatus>> =
+        problems.filterKeys { sportFilter == null || it == sportFilter }.toList()
+}
+
+/** Texto del aviso por deporte. [sportName] ya va en minúsculas si es un nombre común ("tenis"). */
+fun sourceNoticeText(sportName: String, status: SourceStatus): String = when (status) {
+    SourceStatus.STALE ->
+        "La agenda de $sportName no se ha podido actualizar. Se muestran los últimos datos disponibles."
+    SourceStatus.UNAVAILABLE -> "No se ha podido cargar la agenda de $sportName."
+    SourceStatus.OK -> ""
 }

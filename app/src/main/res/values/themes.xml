@@ -7,6 +7,6 @@
         <item name="android:statusBarColor">@color/window_bg</item>
         <item name="android:navigationBarColor">@color/window_bg</item>
         <item name="android:windowContentOverlay">@null</item>
-        <item name="android:colorAccent">#FFB020</item>
+        <item name="android:colorAccent">#8B5CF6</item>
     </style>
 </resources>

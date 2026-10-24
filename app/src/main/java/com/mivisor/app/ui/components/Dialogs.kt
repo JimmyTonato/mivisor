@@ -2,13 +2,16 @@ package com.mivisor.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,12 +48,20 @@ fun TvDialog(
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         if (initialFocus != null) InitialFocus(initialFocus)
+        // En móvil ocupa casi todo el ancho; en TV/tablet, el ancho indicado.
         Column(
             Modifier
-                .width(width)
-                .background(Palette.Surface, RoundedCornerShape(22.dp))
+                .padding(12.dp)
+                .widthIn(max = width)
+                .fillMaxWidth()
+                .background(
+                    androidx.compose.ui.graphics.Brush.linearGradient(
+                        listOf(Palette.Accent.copy(alpha = 0.22f), Palette.Surface, Palette.Surface)
+                    ),
+                    RoundedCornerShape(22.dp)
+                )
                 .border(1.dp, Palette.Outline, RoundedCornerShape(22.dp))
-                .padding(28.dp),
+                .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -143,7 +154,7 @@ fun AppPickerDialog(
         }
         Divider()
         SectionLabel("Recordar elección")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             scopes.forEach { option ->
                 TvButton(
                     label = shortLabel(option),
@@ -206,7 +217,7 @@ fun SourceDialog(
             TvTextField(name, { name = it }, "Nombre", placeholder = "p. ej. Deportes", focusRequester = first)
             TvTextField(code, { code = it; showError = false }, "Código", placeholder = "p. ej. deportes", error = codeError)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             when (mode) {
                 SourceDialogMode.OPEN_CODE -> {
                     TvButton("Abrir", { submit(SourceAction.OPEN_ONLY) }, icon = R.drawable.ic_play, style = ButtonStyle.PRIMARY)
@@ -232,7 +243,7 @@ fun ConfirmDialog(
 ) {
     val cancel = remember { FocusRequester() }
     TvDialog(title = title, subtitle = message, onDismiss = onDismiss, width = 480.dp, initialFocus = cancel) {
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             // El foco empieza en "Cancelar": borrar nunca debe ser la opción por defecto.
             TvButton("Cancelar", onDismiss, Modifier.focusRequester(cancel), style = ButtonStyle.GHOST)
             TvButton(confirmLabel, onConfirm, icon = R.drawable.ic_delete, style = ButtonStyle.DANGER)

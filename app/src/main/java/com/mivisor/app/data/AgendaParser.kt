@@ -5,6 +5,8 @@ import com.google.gson.JsonParser
 import com.mivisor.app.model.Agenda
 import com.mivisor.app.model.AgendaChannel
 import com.mivisor.app.model.AgendaEvent
+import com.mivisor.app.model.SourceStatus
+import com.mivisor.app.model.SportHealth
 import java.util.TimeZone
 
 class InvalidAgendaException(message: String) : Exception(message)
@@ -26,9 +28,37 @@ object AgendaParser {
         }.orEmpty().sortedBy { it.startMillis }
         return Agenda(
             generatedAt = root.str("generatedAt")?.let(::parseIsoMillis) ?: 0L,
-            source = root.str("source") ?: "futbolenlatv.es",
-            events = events
+            source = root.str("source") ?: "Agenda deportiva",
+            events = events,
+            health = health(root)
         )
+    }
+
+    /** Clave de "stats" (proveedor) → deporte que muestra la app. */
+    private val STATS_SPORT = mapOf(
+        "football" to "futbol",
+        "tennis" to "tenis",
+        "formula1" to "formula1",
+        "motogp" to "motogp",
+        "basketball" to "baloncesto"
+    )
+
+    /** "stats" es opcional: si falta o está mal formado, simplemente no hay avisos. */
+    private fun health(root: JsonObject): Map<String, SportHealth> {
+        val stats = root.get("stats")?.takeIf { it.isJsonObject }?.asJsonObject ?: return emptyMap()
+        val out = LinkedHashMap<String, SportHealth>()
+        for ((key, value) in stats.entrySet()) {
+            val o = value?.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+            val sport = STATS_SPORT[key] ?: key
+            val status = when (o.str("status")?.lowercase()) {
+                "ok" -> SourceStatus.OK
+                "stale" -> SourceStatus.STALE
+                "unavailable" -> SourceStatus.UNAVAILABLE
+                else -> continue
+            }
+            out[sport] = SportHealth(status, o.str("lastSuccess")?.let(::parseIsoMillis))
+        }
+        return out
     }
 
     private fun event(o: JsonObject): AgendaEvent? {

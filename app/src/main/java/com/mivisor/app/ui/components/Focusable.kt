@@ -24,6 +24,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -64,9 +66,9 @@ fun TvClickable(
     focusedScale: Float = 1f,
     borderWidth: Dp = 1.dp,
     /** Borde al enfocar (estilo "neón" de la agenda). Transparente = sin borde. */
-    focusedBorderColor: Color = Color.Transparent,
-    /** Halo exterior al enfocar; necesita el radio de esquina para dibujarlo sin sombras. */
-    glowColor: Color = Color.Transparent,
+    focusedBorderColor: Color = com.mivisor.app.ui.theme.Palette.Cyan,
+    /** Halo exterior al enfocar (sigue la forma del elemento). Transparente = sin halo. */
+    glowColor: Color = com.mivisor.app.ui.theme.Palette.Cyan,
     glowCornerRadius: Dp = 12.dp,
     contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable BoxScope.(focused: Boolean) -> Unit
@@ -143,16 +145,14 @@ fun TvClickable(
             .then(
                 // Halo con 3 contornos translúcidos: mismo efecto que un "glow" sin coste de sombras/blur.
                 if (focused && glowColor != Color.Transparent) Modifier.drawBehind {
-                    val r = glowCornerRadius.toPx()
                     GLOW_STEPS.forEach { (spreadDp, alpha) ->
                         val spread = spreadDp.dp.toPx()
-                        drawRoundRect(
-                            color = glowColor.copy(alpha = alpha),
-                            topLeft = Offset(-spread, -spread),
-                            size = Size(size.width + spread * 2, size.height + spread * 2),
-                            cornerRadius = CornerRadius(r + spread),
-                            style = Stroke(width = 3.dp.toPx())
+                        val outline = shape.createOutline(
+                            Size(size.width + spread * 2, size.height + spread * 2), layoutDirection, this
                         )
+                        translate(-spread, -spread) {
+                            drawOutline(outline, glowColor.copy(alpha = alpha), style = Stroke(width = 3.dp.toPx()))
+                        }
                     }
                 } else Modifier
             )

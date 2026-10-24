@@ -43,13 +43,10 @@ fun ScreenScaffold(
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable () -> Unit
 ) {
-    Column(Modifier.fillMaxSize().padding(start = 32.dp, end = Dimens.SafeH, top = Dimens.SafeV)) {
-        Row(Modifier.fillMaxWidth().padding(bottom = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Txt(title, Type.Display)
-                if (subtitle != null) Txt(subtitle, Type.Caption)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), content = actions)
+    val layout = com.mivisor.app.ui.neon.LocalAppLayout.current
+    Column(Modifier.fillMaxSize().padding(horizontal = layout.gutter)) {
+        com.mivisor.app.ui.neon.ScreenHero(title = title, subtitle = subtitle) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically, content = actions)
         }
         content()
     }

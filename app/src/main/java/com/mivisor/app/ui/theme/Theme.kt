@@ -8,30 +8,31 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Sistema visual de Mi Visor.
+ * Sistema visual "neón" de Mi Visor (el de la Agenda, ahora en toda la app):
  *
- * - Fondo grafito (no negro puro: evita el "blooming" de los paneles LED baratos).
- * - Un solo acento ámbar para estado activo y acciones principales.
- * - El foco INVIERTE la tarjeta (fondo claro, texto oscuro): se ve desde el sofá y
- *   no necesita sombras ni brillos, que son caros en GPUs de TV de gama baja.
+ * - Azul noche con luces violeta/azul de fondo y paneles con borde fino.
+ * - Foco: el elemento se ilumina un poco, borde cian y halo (contornos translúcidos,
+ *   sin sombras ni desenfoques: fluido incluso en GPUs de TV de gama baja).
+ * - Violeta para acciones principales; rojo solo para "En vivo" y acciones peligrosas.
  */
 object Palette {
-    val Bg = Color(0xFF0D0F13)
-    val Rail = Color(0xFF111419)
-    val Surface = Color(0xFF181C23)
-    val SurfaceHi = Color(0xFF222731)
-    val Outline = Color(0xFF2E3440)
-    val Text = Color(0xFFEEF1F6)
-    val TextDim = Color(0xFFA4ACBA)
-    val TextFaint = Color(0xFF6C7483)
-    val Accent = Color(0xFFFFB020)
-    val OnAccent = Color(0xFF1E1500)
-    val Focus = Color(0xFFF5F7FA)
-    val OnFocus = Color(0xFF0D0F13)
-    val OnFocusDim = Color(0xFF4A5261)
+    val Bg = Color(0xFF060A1C)
+    val Rail = Color(0xFF0A0F26)
+    val Surface = Color(0xFF0D1330)
+    val SurfaceHi = Color(0xFF141C45)
+    val Outline = Color(0xFF1E2858)
+    val Text = Color(0xFFF4F6FF)
+    val TextDim = Color(0xFFA3AED6)
+    val TextFaint = Color(0xFF6672A3)
+    val Accent = Color(0xFF8B5CF6)
+    val OnAccent = Color(0xFFFFFFFF)
+    val Cyan = Color(0xFF22D3EE)
+    val Focus = Color(0xFF18235A)
+    val OnFocus = Color(0xFFF4F6FF)
+    val OnFocusDim = Color(0xFFB9C3EA)
     val Warning = Color(0xFFFFC857)
-    val Danger = Color(0xFFFF6B6B)
-    val DangerBg = Color(0xFF34181C)
+    val Danger = Color(0xFFFF5C7A)
+    val DangerBg = Color(0xFF3A0B1C)
 
     /** Colores de monograma: tonos apagados para que el acento siga destacando. */
     val Tints = listOf(
@@ -41,7 +42,7 @@ object Palette {
 }
 
 object Type {
-    val Display = TextStyle(color = Palette.Text, fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold)
+    val Display = TextStyle(color = Palette.Text, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.ExtraBold)
     val Title = TextStyle(color = Palette.Text, fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold)
     val Card = TextStyle(color = Palette.Text, fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
     val Body = TextStyle(color = Palette.Text, fontSize = 16.sp, lineHeight = 22.sp)

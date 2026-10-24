@@ -130,7 +130,7 @@ fun KindBadge(kind: ChannelKind, focused: Boolean) {
     val color = kindColor(kind)
     Box(
         Modifier
-            .background(if (focused) Palette.OnFocus else color.copy(alpha = 0.16f), RoundedCornerShape(6.dp))
+            .background(color.copy(alpha = if (focused) 0.28f else 0.16f), RoundedCornerShape(6.dp))
             .padding(horizontal = 7.dp, vertical = 3.dp)
     ) {
         Txt(kind.label, Type.Badge, color = color)

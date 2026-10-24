@@ -1,4 +1,4 @@
-package com.mivisor.app.ui.screens.agenda
+package com.mivisor.app.ui.neon
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
@@ -46,7 +46,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Estilo "neón" de la Agenda deportiva (según las pantallas de referencia):
+ * Kit visual "neón" compartido por toda la app (según las pantallas de referencia):
  * azul noche, paneles con borde, foco cian con halo y acentos violeta/magenta.
  */
 object Neon {
@@ -253,14 +253,22 @@ fun Crest(url: String?, name: String, size: Dp, modifier: Modifier = Modifier) {
 fun sportIcon(sport: String): Int = when (sport) {
     "baloncesto" -> R.drawable.ic_sport_baloncesto
     "tenis" -> R.drawable.ic_sport_tenis
-    "motor" -> R.drawable.ic_sport_motor
+    "motor", "formula1", "motogp" -> R.drawable.ic_sport_motor
     else -> R.drawable.ic_sport_futbol
+}
+
+/** Nombre del deporte dentro de una frase: "la agenda de tenis", "la agenda de Fórmula 1". */
+fun sportInSentence(sport: String): String = when (sport) {
+    "futbol", "baloncesto", "tenis", "motor" -> sportLabel(sport).lowercase(Locale("es", "ES"))
+    else -> sportLabel(sport)
 }
 
 fun sportLabel(sport: String): String = when (sport) {
     "futbol" -> "Fútbol"
     "baloncesto" -> "Baloncesto"
     "tenis" -> "Tenis"
+    "formula1" -> "Fórmula 1"
+    "motogp" -> "MotoGP"
     "motor" -> "Motor"
     else -> sport.replaceFirstChar { it.uppercase() }
 }
@@ -272,35 +280,6 @@ fun timeOf(millis: Long): String = SimpleDateFormat("HH:mm", SPANISH).format(Dat
 /** "Sábado 24" */
 fun dayTitle(millis: Long): String =
     SimpleDateFormat("EEEE d", SPANISH).format(Date(millis)).replaceFirstChar { it.uppercase() }
-
-/** Barra superior: marca, accesos y reloj. */
-@Composable
-fun TopBar(onMyChannels: () -> Unit, onSettings: () -> Unit, modifier: Modifier = Modifier) {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(20_000)
-        }
-    }
-    Row(modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier.size(34.dp).background(
-                Brush.linearGradient(listOf(Neon.Violet, Neon.Magenta)), RoundedCornerShape(9.dp)
-            ),
-            contentAlignment = Alignment.Center
-        ) { Icon(R.drawable.ic_play, Color.White, size = 18.dp) }
-        Box(Modifier.width(12.dp))
-        Txt("Mi Visor", NeonType.H2)
-        Txt(" TV", NeonType.H2.copy(color = Neon.Violet))
-        Box(Modifier.weight(1f))
-        NeonButton("Mis canales", onMyChannels, icon = R.drawable.ic_list)
-        Box(Modifier.width(10.dp))
-        NeonButton("Ajustes", onSettings, icon = R.drawable.ic_settings)
-        Box(Modifier.width(18.dp))
-        Txt(timeOf(now), NeonType.H2.copy(fontWeight = FontWeight.Medium))
-    }
-}
 
 /** Pareja de escudos "local VS visitante" con nombres debajo. */
 @Composable

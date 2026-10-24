@@ -22,10 +22,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -34,6 +31,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,11 +44,25 @@ import com.mivisor.app.model.AgendaEvent
 import com.mivisor.app.model.Channel
 import com.mivisor.app.model.EventStatus
 import com.mivisor.app.ui.components.Icon
-import com.mivisor.app.ui.components.MenuRow
-import com.mivisor.app.ui.components.TvDialog
 import com.mivisor.app.ui.components.Txt
+import com.mivisor.app.ui.neon.Crest
+import com.mivisor.app.ui.neon.InfoChip
+import com.mivisor.app.ui.neon.LocalAppLayout
+import com.mivisor.app.ui.neon.Neon
+import com.mivisor.app.ui.neon.NeonCard
+import com.mivisor.app.ui.neon.NeonType
+import com.mivisor.app.ui.neon.StatusPill
+import com.mivisor.app.ui.neon.TeamColumn
+import com.mivisor.app.ui.neon.TeamsVs
+import com.mivisor.app.ui.neon.dayTitle
+import com.mivisor.app.ui.neon.neonPanel
+import com.mivisor.app.ui.neon.sportLabel
+import com.mivisor.app.ui.neon.timeOf
 
-/** "Canales del encuentro": partido, canales que lo emiten y "Abrir canal" con tus enlaces. */
+/**
+ * "Canales del encuentro": partido, canales que lo emiten y, para cada uno, TODAS tus
+ * opciones (de cualquier código). En TV/tablet: columnas; en móvil: una sola columna.
+ */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun EventDetail(
@@ -59,16 +71,28 @@ internal fun EventDetail(
     vm: AgendaViewModel,
     onBack: () -> Unit,
     onOpenChannel: (Channel) -> Unit,
-    onOpenEvent: (AgendaEvent) -> Unit,
-    onExit: () -> Unit,
-    onSettings: () -> Unit
+    onOpenEvent: (AgendaEvent) -> Unit
 ) {
+    val layout = LocalAppLayout.current
     val context = LocalContext.current
     val firstChannel = remember { FocusRequester() }
     val backButton = remember { FocusRequester() }
     val now = remember(event.id) { System.currentTimeMillis() }
     val status = event.status(now)
     val more = remember(event.id, ui.agenda) { vm.moreToday(event.id) }
+    val blocks: List<Pair<AgendaChannel, List<Channel>>> = remember(event.id, ui.links) {
+        // Primero los canales para los que tienes opciones.
+        event.channels.map { it to ui.links[it.name].orEmpty() }.sortedByDescending { it.second.isNotEmpty() }
+    }
+    val totalOptions = ui.optionCount(event)
+    val onMissing: (AgendaChannel) -> Unit = { channel ->
+        Toast.makeText(
+            context,
+            if (ui.indexedChannels == 0) "Abre antes tus categorías para poder enlazar canales"
+            else "«${channel.name}» no está en ninguno de tus códigos",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
 
     LaunchedEffect(event.id) {
         repeat(3) {
@@ -78,99 +102,148 @@ internal fun EventDetail(
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(start = EdgeH, end = EdgeH, top = EdgeTop)) {
-        TopBar(onMyChannels = onExit, onSettings = onSettings)
-        Row(Modifier.fillMaxSize().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            Column(Modifier.weight(1f).fillMaxHeight()) {
-                NeonCard(
-                    onClick = onBack,
-                    modifier = Modifier.focusRequester(backButton).height(26.dp),
-                    radius = 14.dp,
-                    color = androidx.compose.ui.graphics.Color.Transparent,
-                    borderColor = androidx.compose.ui.graphics.Color.Transparent,
-                    contentAlignment = Alignment.CenterStart
-                ) { focused ->
-                    Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(R.drawable.ic_chevron_left, Neon.Subtitle, size = 18.dp)
-                        Txt("Agenda deportiva", NeonType.Body.copy(fontSize = 15.sp), color = if (focused) Neon.Text else Neon.Subtitle)
-                    }
-                }
-                Txt("Canales del encuentro", NeonType.Hero.copy(fontSize = 32.sp, lineHeight = 36.sp))
-                Txt("Consulta los canales disponibles para este encuentro.", NeonType.HeroSub, modifier = Modifier.padding(bottom = 8.dp))
+    if (layout.compact) {
+        // Móvil: todo en una única lista desplazable.
+        LazyColumn(
+            Modifier.fillMaxSize().padding(horizontal = layout.gutter),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item(key = "back") { BackLink(onBack, backButton) }
+            item(key = "title") { Titles(compact = true) }
+            item(key = "hero") { MatchHero(event, status, compact = true) }
+            item(key = "label") { ChannelsLabel(totalOptions) }
+            if (event.channels.isEmpty()) {
+                item(key = "none") { NoChannels() }
+            }
+            itemsIndexed(blocks, key = { i, b -> "${b.first.name}_$i" }) { index, (channel, options) ->
+                ChannelBlock(
+                    channel, event.competition, status, options,
+                    firstFocus = if (index == 0) Modifier.focusRequester(firstChannel) else Modifier,
+                    onOpen = onOpenChannel, onMissing = { onMissing(channel) }, compact = true
+                )
+            }
+            item(key = "info") { InfoStrip() }
+            if (more.isNotEmpty()) {
+                item(key = "more") { MoreHeader() }
+                items(more, key = { "m_${it.id}" }) { e -> MoreCard(e) { onOpenEvent(e) } }
+            }
+        }
+        return
+    }
 
-                MatchHero(event, status)
-
-                val totalOptions = ui.optionCount(event)
-                Row(Modifier.padding(top = 8.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Txt("Canales disponibles", NeonType.H2)
-                    if (totalOptions > 0) {
-                        Txt(
-                            "  ·  ${if (totalOptions == 1) "1 opción" else "$totalOptions opciones"} en tus canales",
-                            NeonType.Body, color = Neon.Cyan
-                        )
-                    }
-                }
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    if (event.channels.isEmpty()) {
-                        Txt("Todavía no hay canal confirmado para este encuentro.", NeonType.Body, color = Neon.Dim, modifier = Modifier.padding(6.dp))
-                    } else {
-                        // Primero los canales para los que tienes opciones.
-                        val blocks = remember(event.id, ui.links) {
-                            event.channels
-                                .map { it to ui.links[it.name].orEmpty() }
-                                .sortedByDescending { it.second.isNotEmpty() }
+    Row(
+        Modifier.fillMaxSize().padding(horizontal = layout.gutter),
+        horizontalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            BackLink(onBack, backButton)
+            Titles(compact = layout.short)
+            MatchHero(event, status, compact = false)
+            ChannelsLabel(totalOptions)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                if (event.channels.isEmpty()) {
+                    NoChannels()
+                } else {
+                    LazyColumn(
+                        Modifier.fillMaxSize().focusRestorer(),
+                        contentPadding = PaddingValues(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        itemsIndexed(blocks, key = { i, b -> "${b.first.name}_$i" }) { index, (channel, options) ->
+                            ChannelBlock(
+                                channel, event.competition, status, options,
+                                firstFocus = if (index == 0) Modifier.focusRequester(firstChannel) else Modifier,
+                                onOpen = onOpenChannel, onMissing = { onMissing(channel) }, compact = false
+                            )
                         }
-                        LazyColumn(
-                            Modifier.fillMaxSize().focusRestorer(),
-                            contentPadding = PaddingValues(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            itemsIndexed(blocks, key = { i, b -> "${b.first.name}_$i" }) { index, (channel, options) ->
-                                ChannelBlock(
-                                    channel = channel,
-                                    competition = event.competition,
-                                    status = status,
-                                    options = options,
-                                    firstFocus = if (index == 0) Modifier.focusRequester(firstChannel) else Modifier,
-                                    onOpen = onOpenChannel,
-                                    onMissing = {
-                                        Toast.makeText(
-                                            context,
-                                            if (ui.indexedChannels == 0) "Abre antes tus categorías para poder enlazar canales"
-                                            else "«${channel.name}» no está en ninguno de tus códigos",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 14.dp).neonPanel(14.dp).padding(horizontal = 14.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(R.drawable.ic_live, Neon.Violet, size = 28.dp)
-                    Box(Modifier.width(12.dp))
-                    Column {
-                        Txt("Al abrir un canal, se iniciará en tu reproductor externo.", NeonType.Body)
-                        Txt("Se abrirá en la app de TV o reproductor que tengas configurado.", NeonType.Small)
                     }
                 }
             }
-            MoreToday(more, onOpenEvent, Modifier.width(250.dp).fillMaxHeight())
+            InfoStrip(Modifier.padding(top = 6.dp, bottom = 12.dp))
+        }
+        if (layout.expanded) MoreToday(more, onOpenEvent, Modifier.width(250.dp).fillMaxHeight())
+    }
+}
+
+@Composable
+private fun BackLink(onBack: () -> Unit, focus: FocusRequester) {
+    NeonCard(
+        onClick = onBack,
+        modifier = Modifier.focusRequester(focus).height(30.dp),
+        radius = 15.dp,
+        color = Color.Transparent,
+        borderColor = Color.Transparent,
+        contentAlignment = Alignment.CenterStart
+    ) { focused ->
+        Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(R.drawable.ic_chevron_left, Neon.Subtitle, size = 18.dp)
+            Txt("Agenda deportiva", NeonType.Body.copy(fontSize = 15.sp), color = if (focused) Neon.Text else Neon.Subtitle)
         }
     }
 }
 
 @Composable
-private fun MatchHero(event: AgendaEvent, status: EventStatus) {
+private fun Titles(compact: Boolean) {
+    Column(Modifier.padding(bottom = 8.dp)) {
+        Txt(
+            "Canales del encuentro",
+            NeonType.Hero.copy(fontSize = if (compact) 24.sp else 32.sp, lineHeight = if (compact) 28.sp else 36.sp)
+        )
+        if (!compact) Txt("Consulta los canales disponibles para este encuentro.", NeonType.HeroSub)
+    }
+}
+
+@Composable
+private fun ChannelsLabel(totalOptions: Int) {
+    Row(Modifier.padding(top = 8.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Txt("Canales disponibles", NeonType.H2)
+        if (totalOptions > 0) {
+            Txt(
+                "  ·  ${if (totalOptions == 1) "1 opción" else "$totalOptions opciones"}",
+                NeonType.Body, color = Neon.Cyan
+            )
+        }
+    }
+}
+
+@Composable
+private fun NoChannels() {
+    Txt("Todavía no hay canal confirmado para este encuentro.", NeonType.Body, color = Neon.Dim, modifier = Modifier.padding(6.dp))
+}
+
+@Composable
+private fun InfoStrip(modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().neonPanel(14.dp).padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(R.drawable.ic_live, Neon.Violet, size = 28.dp)
+        Box(Modifier.width(12.dp))
+        Column {
+            Txt("Al abrir un canal, se iniciará en tu reproductor externo.", NeonType.Body, maxLines = 2)
+            Txt("Se abrirá en la app de TV o reproductor que tengas configurado.", NeonType.Small, maxLines = 2)
+        }
+    }
+}
+
+@Composable
+private fun MoreHeader() {
+    Row(Modifier.padding(start = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(R.drawable.ic_star, Neon.Blue, size = 18.dp)
+        Box(Modifier.width(8.dp))
+        Txt("Más partidos de hoy", NeonType.H3)
+    }
+}
+
+@Composable
+private fun MatchHero(event: AgendaEvent, status: EventStatus, compact: Boolean) {
     val home = event.home
     val away = event.away
     Row(
         Modifier
             .fillMaxWidth()
-            .height(88.dp)
+            .height(if (compact) 104.dp else 88.dp)
             .background(
                 Brush.horizontalGradient(listOf(Neon.Violet.copy(alpha = 0.35f), Neon.Panel, Neon.Blue.copy(alpha = 0.35f))),
                 RoundedCornerShape(16.dp)
@@ -181,30 +254,33 @@ private fun MatchHero(event: AgendaEvent, status: EventStatus) {
     ) {
         if (home != null && away != null) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                TeamColumn(home, event.homeLogo, 46.dp, 170.dp, NeonType.H3.copy(fontSize = 16.sp))
+                TeamColumn(home, event.homeLogo, if (compact) 36.dp else 46.dp, if (compact) 96.dp else 170.dp, NeonType.H3.copy(fontSize = if (compact) 13.sp else 16.sp))
             }
-            MatchCenter(event, status)
+            MatchCenter(event, status, compact)
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                TeamColumn(away, event.awayLogo, 46.dp, 170.dp, NeonType.H3.copy(fontSize = 16.sp))
+                TeamColumn(away, event.awayLogo, if (compact) 36.dp else 46.dp, if (compact) 96.dp else 170.dp, NeonType.H3.copy(fontSize = if (compact) 13.sp else 16.sp))
             }
         } else {
             Column(Modifier.weight(1f)) {
                 Txt(event.title, NeonType.H2, maxLines = 2)
                 Txt(sportLabel(event.sport), NeonType.Small)
             }
-            MatchCenter(event, status)
+            MatchCenter(event, status, compact)
         }
     }
 }
 
 @Composable
-private fun MatchCenter(event: AgendaEvent, status: EventStatus) {
-    Column(Modifier.width(200.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun MatchCenter(event: AgendaEvent, status: EventStatus, compact: Boolean) {
+    Column(Modifier.width(if (compact) 120.dp else 200.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (event.competitionLogo != null) Crest(event.competitionLogo, event.competition ?: "", 22.dp)
             Txt(event.competition ?: sportLabel(event.sport), NeonType.H3)
         }
-        Txt("${dayTitle(event.startMillis)} · ${timeOf(event.startMillis)}", NeonType.Body.copy(fontSize = 16.sp, color = Neon.Dim))
+        Txt(
+            if (compact) timeOf(event.startMillis) else "${dayTitle(event.startMillis)} · ${timeOf(event.startMillis)}",
+            NeonType.Body.copy(fontSize = 16.sp, color = Neon.Dim)
+        )
         StatusPill(status)
     }
 }
@@ -221,7 +297,8 @@ private fun ChannelBlock(
     options: List<Channel>,
     firstFocus: Modifier,
     onOpen: (Channel) -> Unit,
-    onMissing: () -> Unit
+    onMissing: () -> Unit,
+    compact: Boolean
 ) {
     Column(
         Modifier.fillMaxWidth().neonPanel(14.dp, highlight = Neon.Blue).padding(10.dp),
@@ -245,7 +322,7 @@ private fun ChannelBlock(
                 Txt(channel.name, NeonType.H3)
                 Txt(listOfNotNull("Deportes", competition).joinToString("  |  "), NeonType.Small)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (!compact) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 channel.dial?.let { InfoChip(it.replace(" ", " · ")) }
                 channel.note?.let { InfoChip(it, Neon.Text, dot = Neon.Blue) }
                 if (status == EventStatus.LIVE) InfoChip("En vivo", androidx.compose.ui.graphics.Color(0xFFFF5C7A), dot = Neon.Red)
@@ -299,12 +376,8 @@ private fun OptionCard(number: Int, option: Channel, modifier: Modifier, onClick
 
 @Composable
 private fun MoreToday(events: List<AgendaEvent>, onOpenEvent: (AgendaEvent) -> Unit, modifier: Modifier) {
-    Column(modifier.padding(top = 4.dp)) {
-        Row(Modifier.padding(start = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(R.drawable.ic_star, Neon.Blue, size = 18.dp)
-            Box(Modifier.width(8.dp))
-            Txt("Más partidos de hoy", NeonType.H3)
-        }
+    Column(modifier) {
+        MoreHeader()
         if (events.isEmpty()) {
             Txt("No hay más eventos hoy.", NeonType.Small, modifier = Modifier.padding(6.dp))
         }

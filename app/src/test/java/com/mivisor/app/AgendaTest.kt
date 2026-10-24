@@ -7,6 +7,8 @@ import com.mivisor.app.data.InvalidAgendaException
 import com.mivisor.app.model.Channel
 import com.mivisor.app.model.ChannelKind
 import com.mivisor.app.model.EventStatus
+import com.mivisor.app.model.SourceStatus
+import com.mivisor.app.model.sourceNoticeText
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,7 +21,7 @@ import java.nio.file.Files
 
 class AgendaTest {
 
-    private val json = """{"version":1,"source":"futbolenlatv.es","generatedAt":"2026-10-24T10:00:00Z",
+    private val json = """{"version":1,"source":"MiVisor Sports APIs","generatedAt":"2026-10-24T10:00:00Z",
       "events":[
         {"id":"b","sport":"futbol","competition":"Premier League","start":"2026-10-24T21:00:00+02:00",
          "home":"Arsenal","away":"Chelsea","title":"Arsenal - Chelsea","channels":[{"name":"DAZN 1","dial":"M72"}]},
@@ -134,5 +136,51 @@ class AgendaTest {
             AgendaRepository(Files.createTempDirectory("vacia").toFile()).load("")
             fail()
         } catch (e: InvalidAgendaException) { /* ok */ }
+    }
+
+    @Test fun statsPerSportAreParsed() {
+        val json = """
+            {"version":1,"source":"MiVisor Sports APIs","generatedAt":"2026-10-23T10:17:00Z",
+             "stats":{
+               "football":{"provider":"football-data","status":"ok","lastAttempt":"2026-10-23T10:17:00Z","lastSuccess":"2026-10-23T10:17:00Z","events":0},
+               "tennis":{"provider":"live-tennis-api","status":"stale","error":"timeout","lastSuccess":"2026-10-23T09:17:00Z","events":1},
+               "formula1":{"provider":"jolpica","status":"ok","events":1},
+               "motogp":{"provider":"blacktop","status":"unavailable","error":"rate_limited","events":0},
+               "raro":{"status":"???"}, "roto": 5
+             },
+             "events":[
+               {"id":"tennis-1","sport":"tenis","start":"2026-10-28T14:00:00+01:00","home":"A","away":"B","title":"A - B","channels":[]},
+               {"id":"formula1-2026-20-race","sport":"formula1","competition":"Fórmula 1","start":"2026-10-25T21:00:00+01:00","title":"Mexico City Grand Prix · Carrera","channels":[]}
+             ]}
+        """.trimIndent()
+        val agenda = AgendaParser.parse(json)
+        assertEquals("MiVisor Sports APIs", agenda.source)
+        assertEquals(listOf("formula1", "tenis"), agenda.events.map { it.sport })
+        assertEquals(SourceStatus.OK, agenda.health["futbol"]?.status)
+        assertEquals(SourceStatus.STALE, agenda.health["tenis"]?.status)
+        assertEquals(AgendaParser.parseIsoMillis("2026-10-23T09:17:00Z"), agenda.health["tenis"]?.lastSuccess)
+        assertEquals(SourceStatus.UNAVAILABLE, agenda.health["motogp"]?.status)
+        assertNull(agenda.health["raro"])
+        assertEquals(mapOf("tenis" to SourceStatus.STALE, "motogp" to SourceStatus.UNAVAILABLE), agenda.problems)
+        assertEquals(listOf("tenis" to SourceStatus.STALE), agenda.notices("tenis"))
+        assertTrue(agenda.notices("futbol").isEmpty())
+        assertEquals(2, agenda.notices(null).size)
+        assertTrue(agenda.events.all { it.channels.isEmpty() })
+        assertEquals(
+            "La agenda de tenis no se ha podido actualizar. Se muestran los últimos datos disponibles.",
+            sourceNoticeText("tenis", SourceStatus.STALE)
+        )
+        assertEquals("No se ha podido cargar la agenda de tenis.", sourceNoticeText("tenis", SourceStatus.UNAVAILABLE))
+    }
+
+    @Test fun missingStatsMeansNoNotices() {
+        val agenda = AgendaParser.parse(
+            """{"version":1,"events":[{"id":"x","sport":"motogp","start":"2026-10-25T08:00:00+01:00","title":"GP · Carrera","channels":[]}]}"""
+        )
+        assertTrue(agenda.health.isEmpty())
+        assertTrue(agenda.notices(null).isEmpty())
+        assertEquals("motogp", agenda.events.single().sport)
+        val broken = AgendaParser.parse("""{"version":1,"stats":[1,2],"events":[]}""")
+        assertTrue(broken.health.isEmpty())
     }
 }

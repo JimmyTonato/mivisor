@@ -1,11 +1,16 @@
 name: Agenda deportiva
 
-# Genera agenda.json desde futbolenlatv.es y lo publica en la rama `agenda-data`.
-# La app lo descarga de:
+# Genera agenda.json desde APIs deportivas estructuradas y lo publica en la rama `agenda-data`.
+#   Football-Data.org · Live Tennis API · Blacktop (MotoGP) · Jolpica (F1)
+#     → generate_agenda.py → agenda.json → rama agenda-data → APK
+# La app lo descarga (con caché y ETag, cada 15 min como máximo) de:
 #   https://raw.githubusercontent.com/<usuario>/<repo>/agenda-data/agenda.json
+#
+# Secrets necesarios (Settings → Secrets and variables → Actions):
+#   FOOTBALL_DATA_TOKEN, LIVE_TENNIS_API_KEY, BLACKTOP_API_KEY
 on:
   schedule:
-    - cron: "7,37 * * * *"   # cada 30 min (minutos 7 y 37, evitando la hora en punto saturada)
+    - cron: "17 * * * *"   # una vez por hora, en el minuto 17
   workflow_dispatch:
   push:
     paths:
@@ -30,17 +35,30 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Dependencias
-        run: pip install --quiet beautifulsoup4==4.12.3 requests==2.32.3
-
-      - name: Tests del scraper
+      # El generador solo usa la biblioteca estándar de Python: no hay dependencias que instalar.
+      - name: Tests del generador
         run: python -m unittest discover -s tools/agenda -v
 
-      - name: Generar agenda.json
-        run: python tools/agenda/scrape_agenda.py --out agenda.json --debug-dir debug
+      # Última agenda publicada: permite conservar datos (estado "stale") si un proveedor falla.
+      - name: Recuperar agenda anterior
+        run: |
+          if git fetch -q --depth 1 origin agenda-data 2>/dev/null; then
+            git show FETCH_HEAD:agenda.json > previous.json 2>/dev/null || rm -f previous.json
+          fi
+          if [ -f previous.json ]; then echo "Agenda anterior recuperada"; else echo "Sin agenda anterior"; fi
 
-      # El HTML descargado se guarda siempre: si la web cambia, sirve para ajustar el parser.
-      - name: Guardar HTML de depuración
+      # Si TODOS los proveedores fallan, el script termina con código 3 y el workflow se detiene
+      # aquí: no se publica nada y la rama agenda-data conserva la última agenda válida.
+      - name: Generar agenda.json
+        env:
+          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+          LIVE_TENNIS_API_KEY: ${{ secrets.LIVE_TENNIS_API_KEY }}
+          BLACKTOP_API_KEY: ${{ secrets.BLACKTOP_API_KEY }}
+        run: python tools/agenda/generate_agenda.py --out agenda.json --previous previous.json --debug-dir debug
+
+      # Respuestas crudas de los proveedores (sin cabeceras ni claves): sirven para ajustar los
+      # parsers si una API cambia su formato.
+      - name: Guardar respuestas de depuración
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -51,18 +69,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-      # Rama huérfana con un único commit: el historial no crece aunque se publique cada 30 min.
+      # Publica sin reemplazar el historial existente de agenda-data.
       - name: Publicar en la rama agenda-data
         if: github.ref == 'refs/heads/main' || github.event_name == 'schedule'
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir publish && cp agenda.json publish/
+          if git ls-remote --exit-code --heads origin agenda-data > /dev/null; then
+            git fetch -q --depth 1 origin agenda-data
+            git worktree add --detach publish FETCH_HEAD
+          else
+            status=$?
+            if [ "$status" -ne 2 ]; then exit "$status"; fi
+            git worktree add --detach publish HEAD
+            git -C publish switch --orphan agenda-data
+          fi
+          cp agenda.json publish/agenda.json
           cd publish
-          git init -q -b agenda-data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add agenda.json
-          git commit -q -m "Agenda $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push -q -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" agenda-data
+          if ! git diff --cached --quiet; then
+            git commit -q -m "Agenda $(date -u +%Y-%m-%dT%H:%MZ)"
+          fi
+          git push -q origin HEAD:refs/heads/agenda-data
           echo "Publicado: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/agenda-data/agenda.json"
