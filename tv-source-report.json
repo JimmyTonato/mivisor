@@ -1,0 +1,186 @@
+{
+  "runner": {
+    "PRETTY_NAME": "Ubuntu 26.04.1 LTS",
+    "VERSION_ID": "26.04"
+  },
+  "robots": {
+    "http": 200,
+    "final_url": "https://www.futbolenlatv.es/robots.txt",
+    "content_type": "text/plain; charset=utf-8",
+    "bytes": 761,
+    "seconds": 0.325
+  },
+  "permissions": {
+    "/deporte": "ALLOWED",
+    "/deporte/futbol": "ALLOWED",
+    "/deporte/tenis": "ALLOWED",
+    "/deporte/motor": "ALLOWED",
+    "/deporte/baloncesto": "ALLOWED"
+  },
+  "page": {
+    "http": 200,
+    "final_url": "https://www.futbolenlatv.es/deporte",
+    "content_type": "text/html; charset=utf-8",
+    "bytes": 1288047,
+    "seconds": 1.198
+  },
+  "contains": {
+    "M_PLUS_LALIGA": true,
+    "MOVISTAR": true,
+    "DAZN": true,
+    "LALIGA_TV_BAR": true,
+    "CHAMPIONS": true,
+    "MOTOGP": true,
+    "FORMULA1": true,
+    "ATP": true,
+    "WTA": true
+  },
+  "json_ld": [],
+  "event_candidates": 595,
+  "sample": [
+    {
+      "hours": [
+        "00:50"
+      ],
+      "text": "00:50 F1 Academy G.P. Estados Unidos (Austin) Opening Race DAZN (Ver en directo) F1 Academy YouTube DAZN F1 (M70 O104)",
+      "images": [
+        {
+          "alt": "Automovilismo",
+          "title": "Automovilismo",
+          "url": "https://static.futbolenlatv.com/img/32/20130624110336-automovilismo.webp"
+        }
+      ],
+      "cells": [
+        "00:50",
+        "F1 Academy",
+        "G.P. Estados Unidos (Austin) Opening Race",
+        "DAZN (Ver en directo) F1 Academy YouTube DAZN F1 (M70 O104)"
+      ]
+    },
+    {
+      "hours": [
+        "01:00"
+      ],
+      "text": "01:00 Liga AUF Uruguaya CA Juventud Peñarol Antel TV Internacional",
+      "images": [
+        {
+          "alt": "Fútbol",
+          "title": "Fútbol",
+          "url": "https://static.futbolenlatv.com/img/32/20130618113222-futbol.webp"
+        },
+        {
+          "alt": "CA Juventud",
+          "title": "CA Juventud",
+          "url": "https://static.futbolenlatv.com/img/32/20141121093950-ca-juventud.webp"
+        },
+        {
+          "alt": "Peñarol",
+          "title": "Peñarol",
+          "url": "https://static.futbolenlatv.com/img/32/20130410092630_penarol.webp"
+        }
+      ],
+      "cells": [
+        "01:00",
+        "Liga AUF Uruguaya",
+        "CA Juventud",
+        "Peñarol",
+        "Antel TV Internacional"
+      ]
+    },
+    {
+      "hours": [
+        "01:00"
+      ],
+      "text": "01:00 LVBP Bravos de Margarita Tiburones de la Guaira BeisbolPlay",
+      "images": [
+        {
+          "alt": "Béisbol",
+          "title": "Béisbol",
+          "url": "https://static.futbolenlatv.com/img/32/20141020014802-beisbol.webp"
+        },
+        {
+          "alt": "Bravos de Margarita",
+          "title": "Bravos de Margarita",
+          "url": "https://static.futbolenlatv.com/img/32/20221021203001-bravos-de-margarita.webp"
+        },
+        {
+          "alt": "Tiburones de la Guaira",
+          "title": "Tiburones de la Guaira",
+          "url": "https://static.futbolenlatv.com/img/32/20221021202914-tiburones-de-la-guaira.webp"
+        }
+      ],
+      "cells": [
+        "01:00",
+        "LVBP",
+        "Bravos de Margarita",
+        "Tiburones de la Guaira",
+        "BeisbolPlay"
+      ]
+    },
+    {
+      "hours": [
+        "01:00"
+      ],
+      "text": "01:00 LVBP Cardenales de Lara Águilas del Zulia BeisbolPlay",
+      "images": [
+        {
+          "alt": "Béisbol",
+          "title": "Béisbol",
+          "url": "https://static.futbolenlatv.com/img/32/20141020014802-beisbol.webp"
+        },
+        {
+          "alt": "Cardenales de Lara",
+          "title": "Cardenales de Lara",
+          "url": "https://static.futbolenlatv.com/img/32/20221021203011-cardenales-de-lara.webp"
+        },
+        {
+          "alt": "Águilas del Zulia",
+          "title": "Águilas del Zulia",
+          "url": "https://static.futbolenlatv.com/img/32/20221021203021-aguilas-del-zulia.webp"
+        }
+      ],
+      "cells": [
+        "01:00",
+        "LVBP",
+        "Cardenales de Lara",
+        "Águilas del Zulia",
+        "BeisbolPlay"
+      ]
+    },
+    {
+      "hours": [
+        "01:00"
+      ],
+      "text": "01:00 LVBP Navegantes del Magallanes Caribes de Anzoátegui BeisbolPlay",
+      "images": [
+        {
+          "alt": "Béisbol",
+          "title": "Béisbol",
+          "url": "https://static.futbolenlatv.com/img/32/20141020014802-beisbol.webp"
+        },
+        {
+          "alt": "Navegantes del Magallanes",
+          "title": "Navegantes del Magallanes",
+          "url": "https://static.futbolenlatv.com/img/32/20221021202928-navegantes-del-magallanes.webp"
+        },
+        {
+          "alt": "Caribes de Anzoátegui",
+          "title": "Caribes de Anzoátegui",
+          "url": "https://static.futbolenlatv.com/img/32/20221021202950-caribes-de-anzoategui.webp"
+        }
+      ],
+      "cells": [
+        "01:00",
+        "LVBP",
+        "Navegantes del Magallanes",
+        "Caribes de Anzoátegui",
+        "BeisbolPlay"
+      ]
+    }
+  ],
+  "logo_hosts": [
+    "static.futbolenlatv.com",
+    "www.futbolenlatv.es"
+  ],
+  "result": "VIABLE"
+}

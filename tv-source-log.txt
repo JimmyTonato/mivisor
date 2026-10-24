@@ -1,0 +1,74 @@
+GitHub Actions runner: {'PRETTY_NAME': 'Ubuntu 26.04.1 LTS', 'VERSION_ID': '26.04'}
+USER_AGENT: MiVisor/4
+robots.txt HTTP: 200
+robots.txt Final URL: https://www.futbolenlatv.es/robots.txt
+robots.txt Content-Type: text/plain; charset=utf-8
+robots.txt CONTENIDO: Sitemap: https://www.futbolenlatv.es/sitemap.xml
+
+User-agent: *
+Disallow: /blog
+Disallow: /Pais
+Disallow: /beinsports
+Disallow: /m
+Disallow: /fecha
+Disallow: /baloncesto
+Disallow: /agenda
+Disallow: /tenis
+Disallow: /futbol-sala
+Disallow: /motociclismo
+Disallow: /futbol-americano
+Disallow: /golf
+Disallow: /femenino
+Disallow: /balonmano
+Disallow: /aljazeera
+Disallow: /natacion
+Disallow: /mes
+Disallow: /ftv
+Disallow: /partido
+Disallow: /*/allowcookies
+Disallow: /*/settimezone
+Disallow: /*/cleartimezone
+Disallow: /*/politacookies
+Disallow: /channel
+Disallow: /competition
+Disallow: /team
+Disallow: /sender
+Disallow: /wettbewerbe
+Disallow: /news
+Disallow: /nachrichten
+Disallow: /amp/widget
+Disallow: /api
+Disallow: /apuestas
+ROBOTS /deporte: ALLOWED
+ROBOTS /deporte/futbol: ALLOWED
+ROBOTS /deporte/tenis: ALLOWED
+ROBOTS /deporte/motor: ALLOWED
+ROBOTS /deporte/baloncesto: ALLOWED
+GET /deporte http: 200
+GET /deporte final_url: https://www.futbolenlatv.es/deporte
+GET /deporte content_type: text/html; charset=utf-8
+GET /deporte bytes: 1288047
+GET /deporte seconds: 1.198
+HTML_BYTES: 1288047
+CONTAINS_M_PLUS_LALIGA: true
+CONTAINS_MOVISTAR: true
+CONTAINS_DAZN: true
+CONTAINS_LALIGA_TV_BAR: true
+CONTAINS_CHAMPIONS: true
+CONTAINS_MOTOGP: true
+CONTAINS_FORMULA1: true
+CONTAINS_ATP: true
+CONTAINS_WTA: true
+JSON_LD_BLOCKS: 0
+EVENT_CANDIDATES: 595
+EVENTO 1: {"hours": ["00:50"], "text": "00:50 F1 Academy G.P. Estados Unidos (Austin) Opening Race DAZN (Ver en directo) F1 Academy YouTube DAZN F1 (M70 O104)", "images": [{"alt": "Automovilismo", "title": "Automovilismo", "url": "https://static.futbolenlatv.com/img/32/20130624110336-automovilismo.webp"}], "cells": ["00:50", "F1 Academy", "G.P. Estados Unidos (Austin) Opening Race", "DAZN (Ver en directo) F1 Academy YouTube DAZN F1 (M70 O104)"]}
+EVENTO 2: {"hours": ["01:00"], "text": "01:00 Liga AUF Uruguaya CA Juventud Peñarol Antel TV Internacional", "images": [{"alt": "Fútbol", "title": "Fútbol", "url": "https://static.futbolenlatv.com/img/32/20130618113222-futbol.webp"}, {"alt": "CA Juventud", "title": "CA Juventud", "url": "https://static.futbolenlatv.com/img/32/20141121093950-ca-juventud.webp"}, {"alt": "Peñarol", "title": "Peñarol", "url": "https://static.futbolenlatv.com/img/32/20130410092630_penarol.webp"}], "cells": ["01:00", "Liga AUF Uruguaya", "CA Juventud", "Peñarol", "Antel TV Internacional"]}
+EVENTO 3: {"hours": ["01:00"], "text": "01:00 LVBP Bravos de Margarita Tiburones de la Guaira BeisbolPlay", "images": [{"alt": "Béisbol", "title": "Béisbol", "url": "https://static.futbolenlatv.com/img/32/20141020014802-beisbol.webp"}, {"alt": "Bravos de Margarita", "title": "Bravos de Margarita", "url": "https://static.futbolenlatv.com/img/32/20221021203001-bravos-de-margarita.webp"}, {"alt": "Tiburones de la Guaira", "title": "Tiburones de la Guaira", "url": "https://static.futbolenlatv.com/img/32/20221021202914-tiburones-de-la-guaira.webp"}], "cells": ["01:00", "LVBP", "Bravos de Margarita", "Tiburones de la Guaira", "BeisbolPlay"]}
+EVENTO 4: {"hours": ["01:00"], "text": "01:00 LVBP Cardenales de Lara Águilas del Zulia BeisbolPlay", "images": [{"alt": "Béisbol", "title": "Béisbol", "url": "https://static.futbolenlatv.com/img/32/20141020014802-beisbol.webp"}, {"alt": "Cardenales de Lara", "title": "Cardenales de Lara", "url": "https://static.futbolenlatv.com/img/32/20221021203011-cardenales-de-lara.webp"}, {"alt": "Águilas del Zulia", "title": "Águilas del Zulia", "url": "https://static.futbolenlatv.com/img/32/20221021203021-aguilas-del-zulia.webp"}], "cells": ["01:00", "LVBP", "Cardenales de Lara", "Águilas del Zulia", "BeisbolPlay"]}
+EVENTO 5: {"hours": ["01:00"], "text": "01:00 LVBP Navegantes del Magallanes Caribes de Anzoátegui BeisbolPlay", "images": [{"alt": "Béisbol", "title": "Béisbol", "url": "https://static.futbolenlatv.com/img/32/20141020014802-beisbol.webp"}, {"alt": "Navegantes del Magallanes", "title": "Navegantes del Magallanes", "url": "https://static.futbolenlatv.com/img/32/20221021202928-navegantes-del-magallanes.webp"}, {"alt": "Caribes de Anzoátegui", "title": "Caribes de Anzoátegui", "url": "https://static.futbolenlatv.com/img/32/20221021202950-caribes-de-anzoategui.webp"}], "cells": ["01:00", "LVBP", "Navegantes del Magallanes", "Caribes de Anzoátegui", "BeisbolPlay"]}
+LOGOS_FOUND: true
+LOGO_HOST: static.futbolenlatv.com, www.futbolenlatv.es
+DATOS_DEPORTIVOS_PRESENTES: sí
+CANALES_EN_HTML: sí
+NECESITA_JAVASCRIPT: no para la muestra
+RESULTADO: VIABLE
