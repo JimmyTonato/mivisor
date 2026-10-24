@@ -1,0 +1,9 @@
+{
+  "_comment": "Listas editables para preparar retratos. F1 se obtiene de Jolpica automáticamente; MotoGP se mantiene aquí (actualizar al cambiar la parrilla).",
+  "motogp": [
+    "Marc Márquez", "Francesco Bagnaia", "Jorge Martín", "Marco Bezzecchi", "Pedro Acosta",
+    "Álex Márquez", "Fabio Di Giannantonio", "Franco Morbidelli", "Fabio Quartararo", "Brad Binder",
+    "Enea Bastianini", "Maverick Viñales", "Joan Mir", "Luca Marini", "Raúl Fernández", "Ai Ogura",
+    "Johann Zarco", "Jack Miller", "Fermín Aldeguer", "Álex Rins"
+  ]
+}

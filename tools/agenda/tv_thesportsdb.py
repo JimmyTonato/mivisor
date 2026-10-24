@@ -94,8 +94,10 @@ def name_similarity(ours: Iterable[str], theirs: Optional[str]) -> float:
 
 
 class TheSportsDbTv(TvProvider):
+    service = "thesportsdb"
     label = "TheSportsDB"
-    MAX_REQUESTS = 12                 # por ejecución: una por liga y jornada pendiente
+    MAX_REQUESTS = 5                  # por ejecución (la clave gratuita corta tras ~10 seguidas; el resto
+                                      # es para retratos). Los ids se reutilizan: luego bastan 0–2.
     MIN_INTERVAL = 2.5                # segundos entre peticiones
     RATE_LIMIT_WAIT = 61.0            # TheSportsDB: tras un 429, esperar un minuto
     MAX_KICKOFF_GAP = timedelta(hours=3)
@@ -117,11 +119,23 @@ class TheSportsDbTv(TvProvider):
 
     # ------------------------------------------------------------------ API pública
 
+    @property
+    def status(self) -> str:
+        return "unavailable" if self.stopped in (RATE_LIMITED, "failed") or (
+            self.stopped and self.stopped != "request budget reached") else "ok"
+
+    @property
+    def error(self) -> Optional[str]:
+        if self.stopped == "failed":
+            return "invalid_response"
+        return self.stopped if self.status != "ok" else None
+
     def enrich(self, events: list[Event]) -> list[Event]:
         """Nunca lanza excepciones: ante cualquier fallo los eventos se devuelven tal cual."""
         try:
             self._enrich(events)
         except Exception as exc:  # noqa: BLE001
+            self.stopped = "failed"
             self.log.append(f"{self.label}: FAILED - {type(exc).__name__} - events published without tvId")
         return events
 

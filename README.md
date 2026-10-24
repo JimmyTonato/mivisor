@@ -30,51 +30,118 @@ Toda la app usa el estilo "neón" de la Agenda: azul noche con luces de fondo, p
 
 ## Agenda deportiva
 
-Fútbol, tenis, Fórmula 1 y MotoGP de hoy y de los próximos 14 días, generados a partir de APIs deportivas estructuradas. Los partidos de hoy se mantienen todo el día aunque ya se hayan jugado. Los de días anteriores desaparecen en la siguiente actualización. Cada deporte con fuente aparece como categoría aunque no tenga eventos ("No hay eventos de MotoGP para hoy").
+Fútbol, tenis, Fórmula 1, MotoGP y UFC de hoy y de los próximos 14 días, con los canales de TV de España y retratos de los deportistas.
+- **Partidos ya jugados:** los de hoy se mantienen todo el día; los de días anteriores desaparecen en la siguiente actualización.
+- **Deportes sin eventos:** cada deporte con fuente aparece como categoría aunque no tenga eventos ("No hay eventos de MotoGP para hoy").
 
 ```
-Football-Data.org · Live Tennis API · Blacktop (MotoGP) · Jolpica (F1)
-        │  GitHub Actions, una vez por hora (minuto 17) + ejecución manual
-        ▼
-tools/agenda/generate_agenda.py  ──(tvId: TheSportsDB, opcional)──▶  agenda.json (v1)  ──▶  rama `agenda-data`
-        ▼
-APK: descarga raw.githubusercontent.com/<usuario>/<repo>/agenda-data/agenda.json
-     como mucho cada 15 min (caché + ETag / If-None-Match → 304), y sin conexión usa la última copia
+Football-Data ─── Fútbol          ┐
+Live Tennis API ── Tenis           │
+Jolpica ────────── Fórmula 1       ├─▶ generate_agenda.py (GitHub Actions, cada hora, minuto 17)
+Blacktop ───────── MotoGP          │        │
+Cito UFC ───────── UFC             ┘        ├── futbolenlatv.es/deporte ─▶ canales de TV (1 descarga)
+                                            ├── TheSportsDB ─────────────▶ retratos (+ tvId de respaldo)
+                                            ▼
+                 agenda.json · services.json · athletes.json · ufc-cache.json ─▶ rama `agenda-data`
+                                            ▼
+APK: agenda.json como mucho cada 15 min (caché + ETag → 304); services.json al abrir Servicios (10 min)
 ```
 
-- **La app nunca llama a las APIs deportivas** ni tiene claves: solo lee `agenda.json`. Cada TV hace como mucho una petición pequeña cada 15 minutos, y casi siempre recibe un 304 sin cuerpo.
-- **Sin servidor propio**: todo ocurre en GitHub Actions. El generador usa solo la biblioteca estándar de Python (sin dependencias).
-- **Fuentes y filtros**:
+- **Sin servidor propio y sin claves en la app.** Todas las llamadas con credenciales se hacen en GitHub Actions. La app solo lee los JSON publicados. El generador usa solo la biblioteca estándar de Python.
 
-  | Deporte (`sport`) | Fuente | Qué se incluye |
-  |---|---|---|
-  | `futbol` | Football-Data.org v4 (`/matches` por rango de fechas) | Solo una lista cerrada: LaLiga, Premier League, Serie A, Bundesliga, Ligue 1, Champions League (y Eurocopa/Mundial cuando los hay). Nunca segundas divisiones. |
-  | `tenis` | Live Tennis API (`/fixtures` de ATP y WTA) | Grand Slams y torneos ATP/WTA principales. Se excluyen Challenger, ITF, Futures, juniors, exhibiciones, dobles y partidos aún sin hora. |
-  | `formula1` | Jolpica F1 (calendario de la temporada, sin clave) | Clasificación, Sprint y Carrera. Sin libres ni tiempos en directo. |
-  | `motogp` | Orange Cat Blacktop (`/moto-gp/events`) | Clasificación, Sprint y Carrera de MotoGP. Sin libres, warm up, Moto2 ni Moto3. |
+### Agenda (fuentes autoritativas)
 
-  `motor` y `baloncesto` se siguen aceptando por compatibilidad. Fórmula 1 y MotoGP aparecen como filtros separados.
-- **Canales (TheSportsDB)**: los canales se piden **al abrir cada partido**, desde la app. Así cada usuario hace como mucho una petición por partido desde su propia conexión, y no chocamos con el límite de la clave gratuita.
-  - **Servidor (GitHub Actions):** solo identifica cada partido de fútbol en TheSportsDB. Hace una petición `eventsround` por liga y jornada (unas 6–8 a la hora), cruza hora y equipos ("Barça" = "Barcelona", "Atleti" = "Atlético de Madrid"…) y publica el resultado como `"tvId"` en el evento. Es un campo opcional, así que el formato sigue siendo v1. Los ids ya conocidos se reutilizan de la agenda anterior. Si TheSportsDB responde 429, espera un minuto y reintenta una vez; si vuelve a fallar, lo deja para la siguiente hora.
-  - **App, al abrir un partido:**
-    - Si ya trae canales en `agenda.json`, o ya se pidieron antes, **no se hace ninguna llamada**.
-    - Si no, 1 llamada a `lookuptv.php?id=<tvId>` con la clave pública gratuita "123" de TheSportsDB (no es un secreto). Los canales se guardan en memoria y en disco (`cacheDir/agenda/tv`, se borran a los 3 días).
-    - Si TheSportsDB aún no tiene canales, se vuelve a preguntar pasadas 2 horas. Si la llamada falla, se muestra un aviso y se reintenta al volver a abrir el partido.
-    - Código en `data/TvChannelsRepository.kt`.
-  - **Formato de los canales:** broadcasters de **cualquier país**, sin filtro. Cada uno es `{"name": "DAZN LaLiga", "note": "Spain"}`: `name` lleva solo el nombre, que es lo que usa `ChannelMatcher`, y el país va en `note`. Mismo canal y mismo país = duplicado; el mismo canal en otro país es otra entrada. El plan gratuito da hasta 2 por partido.
-  - **Nunca se inventan canales.** Si TheSportsDB falla, el partido se ve igual.
-  - **Excepción a "la app no llama a APIs":** es la única llamada directa de la app y no lleva ninguna clave privada. Una clave de pago de TheSportsDB iría solo como secret de GitHub, nunca en la APK.
-  - Logos de canal: no se toman de TheSportsDB (sus imágenes no son de uso libre). Se pueden añadir en `logos.json`.
-  - Tenis, F1 y MotoGP no tienen de momento `tvId` (sin canales).
-- **Horas**: las APIs dan UTC; `agenda.json` las presenta en Europe/Madrid con su desfase real (`+01:00` en invierno, `+02:00` en verano), calculado con `zoneinfo`.
-- **IDs estables**: `football-123456`, `tennis-987654`, `formula1-2026-20-race`, `motogp-2026-malaysia-race`.
-- **Si un proveedor falla**, los demás siguen publicándose. Cada uno tiene su estado en `stats`:
-  - `ok`: datos nuevos (0 eventos también es correcto, por ejemplo un parón de liga).
-  - `stale`: ha fallado y se conservan sus eventos de la última agenda publicada que sigue dentro de la ventana. La app muestra: *"La agenda de tenis no se ha podido actualizar. Se muestran los últimos datos disponibles."*
-  - `unavailable`: ha fallado y no hay datos anteriores válidos. La app muestra: *"No se ha podido cargar la agenda de tenis."*
-  - Códigos de error: `provider_unavailable`, `rate_limited`, `authentication_error`, `invalid_response`, `timeout`. En el JSON y en los logs nunca aparecen claves, cabeceras, URLs privadas ni trazas.
-  - **Si fallan todos**, no se genera `agenda.json`, el workflow falla antes de publicar y la app sigue con la última agenda válida.
-- **Depuración**: cada ejecución guarda las respuestas crudas de las APIs (sin cabeceras ni claves) como artifact `agenda-debug-N` durante 3 días. Si una API cambia su formato, sirven para ajustar el parser.
+Deciden qué eventos existen, quién participa, la competición, la fecha y la hora.
+
+| Deporte (`sport`) | Fuente | Qué se incluye | Frecuencia |
+|---|---|---|---|
+| `futbol` | Football-Data.org v4 | LaLiga, Champions, Premier, Serie A, Bundesliga, Ligue 1 (y Eurocopa/Mundial). Nunca segundas divisiones. | cada hora |
+| `tenis` | Live Tennis API | Grand Slams y ATP/WTA principales. Sin Challenger, ITF, juniors, dobles ni rondas de previa. | cada hora |
+| `formula1` | Jolpica (sin clave) | Clasificación, Sprint y Carrera. | cada hora |
+| `motogp` | Blacktop | Clasificación, Sprint y Carrera de MotoGP. | cada hora |
+| `ufc` | Cito UFC (ufcapi.dev) | Cada velada como un evento: "UFC 333 · Volkanovski - Evloev", con su cartelera (`card`). | cada 6 h (caché) |
+
+- **UFC:** el plan gratuito de Cito permite 500 peticiones al mes. Por eso el listado de veladas se consulta como mucho cada 6 horas y cada cartelera se reutiliza 24 horas: unas 180 peticiones al mes.
+- **Horas que no se inventan:** si Cito solo da el día, el evento lleva `"timeTbd": true` y la app muestra "Hora por confirmar". Tampoco se inventan horas para los combates de la cartelera.
+
+### Canales de TV: futbolenlatv.es/deporte
+
+- **Solo enriquecimiento:** nunca decide qué eventos existen. Los canales se asignan a los eventos que ya han llegado de las APIs.
+- **Una sola descarga agregada** de `/deporte` por ejecución (unas 24 al día), con el User-Agent `MiVisor/4`. Todo se analiza en local. No se recorren `/deporte/futbol`, `/deporte/tenis`…
+- **robots.txt en cada ejecución:** si `/deporte` deja de estar permitido, no se descarga y el servicio queda `unavailable` (`robots_disallowed`). La agenda sigue igual.
+- **Parser** (`tv_futbolenlatv.py`, solo biblioteca estándar): lee las tablas de la página.
+  - Fechas: de las cabeceras, en formato `24/10/2026` o `lunes 26 de octubre`.
+  - Deporte: de las celdas, de los iconos o de las cabeceras de sección.
+  - De cada fila: hora, competición, local/visitante (o un único evento "A - B") y canales con dial ("M+ LALIGA (M54 O110)" → nombre + dial) o nota ("DAZN (Ver en directo)").
+  - Se descarta "Canal por confirmar"; los canales "Bar" se mantienen.
+  - Las imágenes junto a tenistas o luchadores suelen ser **banderas**: nunca se usan como logo ni como retrato.
+- **Matching por deporte** con señales combinadas; nunca por igualdad literal. Los nombres se normalizan: acentos, mayúsculas, signos, FC/CF, "At. Madrid" = "Atlético de Madrid" = "Atleti", "Marsella" = "Marseille"…
+
+  | Deporte | Señales |
+  |---|---|
+  | Fútbol | local y visitante (uno inequívoco y el otro compatible) + hora (±30 min) |
+  | Tenis | apellidos (+ inicial) de los dos jugadores, en cualquier orden + mismo día (±4 h) |
+  | F1 / MotoGP | tipo de sesión (clasificación / sprint / carrera; "clasificación sprint" no es el sprint) + hora (±45 min) |
+  | UFC | número de la velada ("UFC 333") y/o apellidos de los luchadores + fecha |
+
+  Si el match es dudoso (dos filas distintas igual de buenas, o un solo equipo coincide) **no se asignan canales**: `"channels": []`.
+- **Si la fuente falla** (timeout, error HTTP, HTML cambiado o menos de 5 filas): los eventos conservan los canales de la agenda anterior (`stale`) o quedan sin canales (`unavailable`). La agenda se publica igual.
+- **Formato de canal:** `{"name": "M+ LALIGA", "dial": "M54 O110"}`. `name` es solo el nombre, que es lo que usa `ChannelMatcher` para buscarlo en tus códigos. Estos canales tienen prioridad sobre cualquier otra fuente de TV.
+- **Respaldo TheSportsDB:** si un partido de fútbol no trae canales, la app puede pedirlos a TheSportsDB al abrirlo (`tvId`, `data/TvChannelsRepository.kt`). Esa consulta nunca sobrescribe los canales de `/deporte`.
+
+### Retratos (athletes.json)
+
+- **Tenis:** TheSportsDB (`searchplayers`). Se usa `strCutout`; si no hay, `strThumb`; luego `strRender`; si no, placeholder con iniciales.
+  - El jugador devuelto tiene que ser del mismo deporte y tener el mismo apellido (e inicial). Si no, no hay foto: mejor el placeholder que la cara de otra persona.
+- **UFC:** la imagen del luchador que da Cito. Si no hay, TheSportsDB. Si tampoco, placeholder.
+- **F1 y MotoGP:** los retratos de los pilotos se preparan en el catálogo. Los pilotos de F1 se sacan de Jolpica; los de MotoGP, de la lista editable `tools/agenda/athletes_seed.json`. Sirven para vistas de pilotos o el detalle de un GP. **No** se ponen dos caras en la tarjeta de una carrera, porque no es un 1 contra 1.
+- **Caché larga:** una cara encontrada vale 30 días y una búsqueda sin resultado no se repite en 7. La clave gratuita de TheSportsDB corta tras unas 10 peticiones seguidas, así que cada hora se buscan como mucho unas pocas caras nuevas y se para al primer 429.
+- **En la app:** los eventos de tenis y UFC llevan `homeImage` / `awayImage` (opcionales) y se muestran como retratos redondos. Fútbol sigue con escudos. Una agenda antigua sin estos campos funciona igual.
+
+### Diagnóstico: Ajustes → Servicios y diagnóstico
+
+`services.json` se publica junto a `agenda.json` y la app lo descarga de la misma dirección. El botón "Actualizar" **solo** vuelve a descargar `services.json`: no ejecuta GitHub Actions ni llama a las APIs. Sin conexión se muestra la última copia, avisando de que puede no estar actualizada.
+
+```json
+{
+  "version": 1, "generatedAt": "2026-10-24T20:17:00Z", "overall": "degraded",
+  "services": [
+    {"id": "live_tennis", "name": "Live Tennis API", "role": "Agenda de tenis", "kind": "core",
+     "status": "stale", "lastAttempt": "2026-10-24T20:17:00Z", "lastSuccess": "2026-10-24T18:17:00Z",
+     "consecutiveFailures": 2, "lastError": {"code": "timeout", "message": "Tiempo de espera agotado", "at": "…"}}
+  ],
+  "history": [
+    {"service": "live_tennis", "at": "2026-10-24T19:17:00Z", "type": "error", "status": "stale", "code": "timeout",
+     "message": "Sincronización fallida"},
+    {"service": "live_tennis", "at": "2026-10-24T21:17:00Z", "type": "recovery", "status": "ok", "message": "Servicio recuperado"}
+  ]
+}
+```
+
+- **Servicios:**
+  - **Esenciales (`core`):** Football-Data, Live Tennis, Jolpica, Blacktop, Cito UFC.
+  - **Auxiliares (`aux`):** Fútbol en la TV, TheSportsDB.
+  - **Además:** "Agenda GitHub", la generación y publicación global.
+- **Estados:** `ok` (Operativo) · `stale` (Datos anteriores) · `unavailable` (No disponible) · `disabled`.
+  - Responder bien con 0 eventos **no** es un fallo.
+  - Los estados de las fuentes de agenda salen de los mismos `stats` de `agenda.json`, así que la pantalla de Servicios y los avisos de la Agenda nunca se contradicen.
+- **`overall`:**
+  - `ok`: todo funciona.
+  - `degraded`: algo falla o usa datos anteriores, pero hay agenda. Un fallo de TV o de retratos nunca pasa de aquí.
+  - `down`: no se ha podido generar la agenda.
+- **Errores:** códigos genéricos con su mensaje en español: `timeout`, `rate_limited`, `authentication_error`, `invalid_response`, `robots_disallowed`, `provider_unavailable`, `parse_error`. Nunca hay claves, cabeceras, URLs con tokens ni trazas.
+- **Historial:**
+  - Qué se guarda: solo fallos y recuperaciones (no una entrada "OK" cada hora).
+  - Retención: como mucho 30 días y 100 entradas por servicio.
+  - Continuidad: se recupera el `services.json` anterior de la rama `agenda-data` antes de generar el nuevo, así que no se pierde entre ejecuciones.
+- **Si fallan todas las fuentes de agenda:** no se sobrescribe la última `agenda.json` válida. Se publica igualmente `services.json` (con `overall: "down"`) y el workflow queda en rojo.
+
+### Estados por deporte en la agenda
+
+Cada fuente de agenda tiene su estado en `stats` de `agenda.json`:
+- `stale`: la app muestra *"La agenda de tenis no se ha podido actualizar. Se muestran los últimos datos disponibles."*
+- `unavailable`: la app muestra *"No se ha podido cargar la agenda de tenis."*
+
 - **URL**: la app la recibe al compilarse en Actions (`BuildConfig.AGENDA_URL`, a partir de `GITHUB_REPOSITORY`). Se puede cambiar en Ajustes → Agenda deportiva. El repositorio debe ser **público** para que `raw.githubusercontent.com` sirva el JSON.
 - **Diseño**: pantalla completa con estilo propio (azul noche, foco cian con halo, columnas de filtros, destacados y "Más partidos de hoy"). Código en `ui/screens/agenda/`. El halo se dibuja con contornos translúcidos, sin sombras ni desenfoques, para que vaya fluido en TVs modestas.
 - **Logos**: escudos y emblemas de Football-Data cuando los trae y, por encima de ellos, los de `tools/agenda/logos.json` (nombre → URL PNG/WebP), que controlas tú. La app los carga con un cargador propio (`RemoteImage`): los reduce al tamaño en que se pintan y usa caché en memoria (máx. 6 MB) y en disco. Sin logo se muestran las iniciales sobre un escudo de color.
@@ -86,51 +153,66 @@ APK: descarga raw.githubusercontent.com/<usuario>/<repo>/agenda-data/agenda.json
   - Añadir subfiltros a otro deporte (ATP/WTA, GP…) es añadir una entrada en `AgendaFilters`.
 - **Opciones por canal**: cada canal de la agenda ("DAZN LaLiga") se busca en **todos tus códigos**. Si varios códigos traen ese canal, el evento muestra todas las opciones ("Opción 1 · Deportes · ACE", "Opción 2 · Fútbol · HLS"…) y OK abre la elegida. El mismo enlace repetido en dos códigos cuenta como una sola opción. El emparejado (`ChannelMatcher`) ignora acentos, mayúsculas, orden de palabras y etiquetas de calidad (HD/FHD/1080…), y aplica alias (M+ → Movistar), pero es estricto con los números: "DAZN LaLiga 2" no se mezcla con "DAZN LaLiga", ni "DAZN" a secas con "DAZN 1".
 
-### Secrets necesarios
+### Secrets
 
-En **Settings → Secrets and variables → Actions → New repository secret**, crea estos tres (los nombres deben ser exactos):
+En **Settings → Secrets and variables → Actions** (solo los nombres; los valores nunca van en el proyecto):
 
 | Secret | Proveedor |
 |---|---|
 | `FOOTBALL_DATA_TOKEN` | Football-Data.org (cabecera `X-Auth-Token`) |
 | `LIVE_TENNIS_API_KEY` | Live Tennis API (`Authorization: Bearer`) |
-| `BLACKTOP_API_KEY` | Orange Cat Blacktop (cabecera `x-api-key`) |
+| `BLACKTOP_API_KEY` | Blacktop (cabecera `x-api-key`) |
+| `CITO_API_KEY` | Cito UFC (cabecera `x-api-key`) — ya configurado |
+| `THESPORTSDB_API_KEY` | Opcional. Sin él se usa la clave pública gratuita de TheSportsDB |
 
-Opcional: `THESPORTSDB_API_KEY` (clave de pago de TheSportsDB). Sin ella se usa su clave pública gratuita. Jolpica no necesita clave. Las claves solo existen en GitHub Secrets: no van en el código, ni en la APK, ni en `agenda.json`. Si falta un secret, ese deporte queda `unavailable` (`authentication_error`) y el resto se publica igual.
+- **Jolpica y futbolenlatv.es** no necesitan clave.
+- **Si falta un secret**, ese servicio queda `unavailable` (`authentication_error`) y el resto se publica igual.
 
 ### Formato de `agenda.json` (v1)
 
+Los campos nuevos son **opcionales**. La app los ignora si no están:
+- `homeImage` / `awayImage`
+- `timeTbd`
+- `card` (UFC)
+- `tvId`
+
 ```json
 {
-  "version": 1, "source": "MiVisor Sports APIs", "generatedAt": "2026-10-23T10:17:00Z",
-  "timezone": "Europe/Madrid",
-  "stats": {
-    "football": {"provider": "football-data", "status": "ok", "lastAttempt": "2026-10-23T10:17:00Z",
-                 "lastSuccess": "2026-10-23T10:17:00Z", "events": 12},
-    "tennis":   {"provider": "live-tennis-api", "status": "stale", "error": "timeout",
-                 "lastAttempt": "2026-10-23T10:17:00Z", "lastSuccess": "2026-10-23T09:17:00Z", "events": 9}
-  },
-  "events": [{
-    "id": "football-123456", "sport": "futbol", "competition": "LaLiga",
-    "start": "2026-10-24T18:00:00+02:00", "home": "Real Madrid", "away": "Sevilla",
-    "title": "Real Madrid - Sevilla", "homeLogo": "https://…", "competitionLogo": "https://…",
-    "tvId": "2501234", "channels": []
-  }, {
-    "id": "formula1-2026-20-race", "sport": "formula1", "competition": "Fórmula 1",
-    "start": "2026-10-25T21:00:00+01:00", "title": "Mexico City Grand Prix · Carrera", "channels": []
-  }]
+  "version": 1, "source": "MiVisor Sports APIs", "generatedAt": "2026-10-24T18:17:00Z", "timezone": "Europe/Madrid",
+  "stats": {"football": {"provider": "football-data", "status": "ok", "events": 12}, "ufc": {"provider": "cito", "status": "ok", "cached": true}},
+  "events": [
+    {"id": "football-564722", "sport": "futbol", "competition": "LaLiga", "start": "2026-10-24T21:00:00+02:00",
+     "home": "Atleti", "away": "Deportivo", "title": "Atleti - Deportivo", "homeLogo": "https://…",
+     "channels": [{"name": "M+ LALIGA", "dial": "M54 O110"}, {"name": "Orange Fútbol 1"}, {"name": "LaLiga TV Bar"}]},
+    {"id": "tennis-987654", "sport": "tenis", "competition": "ATP · Paris Masters · Semi-finals",
+     "start": "2026-10-31T15:00:00+01:00", "home": "Carlos Alcaraz", "away": "Jannik Sinner", "title": "Carlos Alcaraz - Jannik Sinner",
+     "homeImage": "https://r2.thesportsdb.com/…", "awayImage": "https://r2.thesportsdb.com/…", "channels": [{"name": "Movistar Plus+"}]},
+    {"id": "ufc-ufc-333", "sport": "ufc", "competition": "UFC 333", "start": "2026-10-25T03:00:00+01:00",
+     "home": "Alexander Volkanovski", "away": "Movsar Evloev", "title": "Alexander Volkanovski - Movsar Evloev",
+     "homeImage": "https://…", "awayImage": "https://…", "card": [{"red": "…", "blue": "…", "weightClass": "…", "main": true}],
+     "channels": [{"name": "DAZN", "note": "PPV"}]}
+  ]
 }
 ```
-
-`stats` es opcional para la app: si falta, simplemente no se muestran avisos. `tvId` también es opcional: la app lo usa para pedir los canales al abrir el partido (`[{"name": "DAZN LaLiga", "note": "Spain"}, …]`). Cada canal admite `name`, `dial`, `note` y `logo`.
 
 ### Probar en local
 
 ```bash
-python -m unittest discover -s tools/agenda -v          # sin Internet: las APIs están simuladas
-export FOOTBALL_DATA_TOKEN=… LIVE_TENNIS_API_KEY=… BLACKTOP_API_KEY=…
-python tools/agenda/generate_agenda.py --out agenda.json --debug-dir debug
+python -m unittest discover -s tools/agenda -v          # sin Internet: todo simulado (incluido el HTML de /deporte)
+export FOOTBALL_DATA_TOKEN=… LIVE_TENNIS_API_KEY=… BLACKTOP_API_KEY=… CITO_API_KEY=…
+python tools/agenda/generate_agenda.py --out out/agenda.json --state-dir state --debug-dir debug
 ```
+
+**Fixtures de `/deporte`:**
+- `fixtures/deporte_real_extracto.html` es un **extracto real saneado** de la página (24/10/2026): solo la tabla, sin scripts ni enlaces de afiliados. Con él se comprueba el parser contra el HTML real.
+- `deporte_tablas.html` usa el mismo marcado con partidos inventados, para probar el matching con nuestras competiciones.
+- Estructura real:
+  - Fecha: `tr.cabeceraTabla` → "Partidos de hoy sábado, 24/10/2026".
+  - Hora: `td.hora`.
+  - Competición: `td.detalles`. Su icono `alt` da el deporte ("Fútbol", "Tenis", "Automovilismo", "Motociclismo", "Golf"…). En automovilismo y motociclismo, la competición decide: "F1 Academy", "Moto2" y "Moto3" son `motor`, nunca F1 ni MotoGP.
+  - Participantes: `td.local` / `td.visitante`, o `td.eventoUnaColumna > span.eventoUnico` para eventos sin rivales.
+  - Canales: `td.canales > ul.listaCanales > li[title]`, con dial "M54 O110" o solo números de Movistar ("63", "8 y 50").
+- Cada ejecución guarda además el HTML completo en el artifact `agenda-debug-N`.
 
 ## Mando
 
@@ -174,7 +256,8 @@ app/src/main/java/com/mivisor/app/
     ├── screens/             Catálogo, Historial, Categorías, Ajustes
     └── MiVisorApp.kt        menú lateral, navegación y "Atrás"
 app/src/test/                tests unitarios (DNS, decodificador, repositorio, catálogo, agenda)
-tools/agenda/                generador de agenda.json (agenda_core, providers, tv_thesportsdb, generate_agenda) y sus tests
+tools/agenda/                generador: agenda_core, providers, provider_ufc, tv_futbolenlatv, tv_thesportsdb,
+                             artwork, services, matching, generate_agenda (+ tests y fixtures)
 ```
 
 ## Compatibilidad con versiones anteriores
@@ -192,7 +275,7 @@ tools/agenda/                generador de agenda.json (agenda_core, providers, t
 3. Sube el APK y los informes como artifacts.
 4. En `main`, además, publica una Release `build-N` marcada como *latest*.
 
-`.github/workflows/agenda.yml`, cada hora (`17 * * * *`), a mano o al cambiar `tools/agenda/`: tests del generador → recupera la última `agenda.json` de `agenda-data` → genera la nueva con los tres secrets → publica (si al menos un proveedor ha respondido).
+`.github/workflows/agenda.yml`, cada hora (`17 * * * *`), a mano o al cambiar `tools/agenda/`: tests del generador → recupera el estado anterior de `agenda-data` (agenda, servicios, retratos, caché UFC) → genera con los secrets → publica todo en `agenda-data`. Si fallan todas las fuentes de agenda, publica `services.json` con la última agenda válida y termina en rojo.
 
 ### Firma con clave propia (opcional)
 

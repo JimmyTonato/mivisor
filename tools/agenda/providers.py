@@ -24,23 +24,30 @@ from typing import Any, Callable, Mapping, Optional
 from agenda_core import Event, TZ, clean, in_window, parse_instant, slug, window
 
 USER_AGENT = "MiVisorAgenda/2.0 (+GitHub Actions; agenda horaria)"
-MAX_BODY = 8 * 1024 * 1024
+# User-Agent con el que se validó la fuente de TV (robots.txt y /deporte).
+TV_USER_AGENT = "MiVisor/4"
+MAX_BODY = 8 * 1024 * 1024   # /deporte pesa ~1,3 MB
 
-# Códigos de error genéricos (los únicos que llegan a agenda.json).
+# Códigos de error genéricos (los únicos que llegan a agenda.json y services.json).
 PROVIDER_UNAVAILABLE = "provider_unavailable"
 RATE_LIMITED = "rate_limited"
 AUTHENTICATION_ERROR = "authentication_error"
 INVALID_RESPONSE = "invalid_response"
 TIMEOUT = "timeout"
+ROBOTS_DISALLOWED = "robots_disallowed"
+PARSE_ERROR = "parse_error"
+ERROR_CODES = (PROVIDER_UNAVAILABLE, RATE_LIMITED, AUTHENTICATION_ERROR, INVALID_RESPONSE, TIMEOUT,
+               ROBOTS_DISALLOWED, PARSE_ERROR)
 
 
 class ProviderError(Exception):
     """Fallo de un proveedor. `code` va a agenda.json; `detail` solo al log (sin secretos)."""
 
-    def __init__(self, code: str, detail: str = ""):
+    def __init__(self, code: str, detail: str = "", status: Optional[int] = None):
         super().__init__(code)
         self.code = code
         self.detail = detail
+        self.status = status   # código HTTP si lo hubo (p. ej. 404 en robots.txt)
 
 
 def code_for_status(status: int) -> str:
@@ -60,18 +67,16 @@ class Http:
         self.timeout = timeout
         self.recorder = recorder
 
-    def get_json(self, url: str, headers: Optional[Mapping[str, str]] = None,
-                 params: Optional[Mapping[str, Any]] = None, label: str = "") -> Any:
+    def _get(self, url: str, headers: Mapping[str, str], params: Optional[Mapping[str, Any]], label: str,
+             accept: str) -> bytes:
         if params:
             url = f"{url}?{urllib.parse.urlencode(params)}"
-        request = urllib.request.Request(url, headers={
-            "User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})
-        })
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": accept, **headers})
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as resp:
                 body = resp.read(MAX_BODY + 1)
         except urllib.error.HTTPError as e:
-            raise ProviderError(code_for_status(e.code), f"HTTP {e.code}") from None
+            raise ProviderError(code_for_status(e.code), f"HTTP {e.code}", status=e.code) from None
         except (socket.timeout, TimeoutError):
             raise ProviderError(TIMEOUT, "timeout") from None
         except urllib.error.URLError as e:
@@ -82,10 +87,20 @@ class Http:
             raise ProviderError(INVALID_RESPONSE, "response too large")
         if self.recorder:
             self.recorder(label, body)
+        return body
+
+    def get_json(self, url: str, headers: Optional[Mapping[str, str]] = None,
+                 params: Optional[Mapping[str, Any]] = None, label: str = "") -> Any:
+        body = self._get(url, dict(headers or {}), params, label, "application/json")
         try:
             return json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
             raise ProviderError(INVALID_RESPONSE, "invalid JSON") from None
+
+    def get_text(self, url: str, headers: Optional[Mapping[str, str]] = None, label: str = "") -> str:
+        """Páginas HTML y robots.txt. Mismo tratamiento de errores que get_json."""
+        body = self._get(url, dict(headers or {}), None, label, "text/html,text/plain;q=0.9,*/*;q=0.5")
+        return body.decode("utf-8", errors="replace")
 
 
 class Provider:

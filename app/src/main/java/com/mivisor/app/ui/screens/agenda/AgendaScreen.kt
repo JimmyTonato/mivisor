@@ -54,6 +54,9 @@ import com.mivisor.app.model.sourceNoticeText
 import com.mivisor.app.ui.components.Icon
 import com.mivisor.app.ui.components.Txt
 import com.mivisor.app.ui.neon.Crest
+import com.mivisor.app.ui.neon.Participant
+import com.mivisor.app.ui.neon.eventTime
+import com.mivisor.app.ui.neon.eventTimeText
 import com.mivisor.app.ui.neon.FilterChip
 import com.mivisor.app.ui.neon.LocalAppLayout
 import com.mivisor.app.ui.neon.Neon
@@ -365,7 +368,7 @@ private fun EventRow(event: AgendaEvent, options: Int, showDay: Boolean, modifie
         Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.width(70.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (showDay) Txt(dayTitle(event.startMillis), NeonType.Small)
-                Txt(timeOf(event.startMillis), NeonType.Time)
+                Txt(eventTime(event), NeonType.Time)
                 if (!showDay) StatusPill(status)
             }
             Box(Modifier.width(1.dp).height(44.dp).background(Neon.Stroke))
@@ -383,7 +386,7 @@ private fun EventRow(event: AgendaEvent, options: Int, showDay: Boolean, modifie
             val home = event.home
             val away = event.away
             if (home != null && away != null) {
-                TeamsVs(home, event.homeLogo, away, event.awayLogo, crestSize = 30.dp, nameWidth = 66.dp)
+                TeamsVs(home, event.homeVisual, away, event.awayVisual, crestSize = 30.dp, nameWidth = 66.dp, portrait = event.isPersonVsPerson)
             } else {
                 Txt(event.title, NeonType.H3, maxLines = 2, modifier = Modifier.width(162.dp))
             }
@@ -406,7 +409,7 @@ private fun EventCardCompact(event: AgendaEvent, options: Int, modifier: Modifie
     ) { focused ->
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Txt(timeOf(event.startMillis), NeonType.Time.copy(fontSize = 18.sp))
+                Txt(eventTime(event), NeonType.Time.copy(fontSize = 18.sp))
                 Box(Modifier.width(8.dp))
                 StatusPill(status)
                 Box(Modifier.width(10.dp))
@@ -418,13 +421,13 @@ private fun EventCardCompact(event: AgendaEvent, options: Int, modifier: Modifie
             val away = event.away
             if (home != null && away != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Crest(event.homeLogo, home, 26.dp)
+                    Participant(event.homeVisual, home, 26.dp, event.isPersonVsPerson)
                     Box(Modifier.width(8.dp))
                     Txt(home, NeonType.H3, modifier = Modifier.weight(1f))
                     Txt("VS", NeonType.Small.copy(fontWeight = FontWeight.Bold), color = Neon.Faint, modifier = Modifier.padding(horizontal = 6.dp))
                     Txt(away, NeonType.H3.copy(textAlign = androidx.compose.ui.text.style.TextAlign.End), modifier = Modifier.weight(1f))
                     Box(Modifier.width(8.dp))
-                    Crest(event.awayLogo, away, 26.dp)
+                    Participant(event.awayVisual, away, 26.dp, event.isPersonVsPerson)
                 }
             } else {
                 Txt(event.title, NeonType.H3, maxLines = 2)
@@ -490,11 +493,11 @@ private fun FeaturedCard(event: AgendaEvent, onClick: () -> Unit) {
         Row(Modifier.fillMaxSize().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Crest(event.homeLogo, event.home ?: event.title, 20.dp)
-                    if (event.away != null) Crest(event.awayLogo, event.away, 20.dp)
+                    Participant(event.homeVisual, event.home ?: event.title, 20.dp, event.isPersonVsPerson)
+                    if (event.away != null) Participant(event.awayVisual, event.away, 20.dp, event.isPersonVsPerson)
                 }
                 Txt(if (event.home != null && event.away != null) "${event.home} vs ${event.away}" else event.title, NeonType.Body)
-                Txt(listOfNotNull(event.competition, timeOf(event.startMillis)).joinToString(" · "), NeonType.Small)
+                Txt(listOfNotNull(event.competition, eventTimeText(event)).joinToString(" · "), NeonType.Small)
             }
             if (event.status(now) == EventStatus.LIVE) StatusPill(EventStatus.LIVE, Modifier.padding(start = 6.dp))
         }

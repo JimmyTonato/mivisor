@@ -58,6 +58,8 @@ import com.mivisor.app.ui.neon.dayTitle
 import com.mivisor.app.ui.neon.neonPanel
 import com.mivisor.app.ui.neon.sportLabel
 import com.mivisor.app.ui.neon.timeOf
+import com.mivisor.app.ui.neon.eventTime
+import com.mivisor.app.ui.neon.eventTimeText
 
 /**
  * "Canales del encuentro": partido, canales que lo emiten y, para cada uno, TODAS tus
@@ -264,11 +266,11 @@ private fun MatchHero(event: AgendaEvent, status: EventStatus, compact: Boolean)
     ) {
         if (home != null && away != null) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                TeamColumn(home, event.homeLogo, if (compact) 36.dp else 46.dp, if (compact) 96.dp else 170.dp, NeonType.H3.copy(fontSize = if (compact) 13.sp else 16.sp))
+                TeamColumn(home, event.homeVisual, if (compact) 36.dp else 52.dp, if (compact) 96.dp else 170.dp, NeonType.H3.copy(fontSize = if (compact) 13.sp else 16.sp), event.isPersonVsPerson)
             }
             MatchCenter(event, status, compact)
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                TeamColumn(away, event.awayLogo, if (compact) 36.dp else 46.dp, if (compact) 96.dp else 170.dp, NeonType.H3.copy(fontSize = if (compact) 13.sp else 16.sp))
+                TeamColumn(away, event.awayVisual, if (compact) 36.dp else 52.dp, if (compact) 96.dp else 170.dp, NeonType.H3.copy(fontSize = if (compact) 13.sp else 16.sp), event.isPersonVsPerson)
             }
         } else {
             Column(Modifier.weight(1f)) {
@@ -288,7 +290,7 @@ private fun MatchCenter(event: AgendaEvent, status: EventStatus, compact: Boolea
             Txt(event.competition ?: sportLabel(event.sport), NeonType.H3)
         }
         Txt(
-            if (compact) timeOf(event.startMillis) else "${dayTitle(event.startMillis)} · ${timeOf(event.startMillis)}",
+            if (compact) eventTimeText(event) else "${dayTitle(event.startMillis)} · ${eventTimeText(event)}",
             NeonType.Body.copy(fontSize = 16.sp, color = Neon.Dim)
         )
         StatusPill(status)
@@ -419,13 +421,13 @@ private fun MoreCard(event: AgendaEvent, onClick: () -> Unit) {
                 val home = event.home
                 val away = event.away
                 if (home != null && away != null) {
-                    TeamsVs(home, event.homeLogo, away, event.awayLogo, crestSize = 30.dp, nameWidth = 84.dp)
+                    TeamsVs(home, event.homeVisual, away, event.awayVisual, crestSize = 30.dp, nameWidth = 84.dp, portrait = event.isPersonVsPerson)
                 } else {
                     Txt(event.title, NeonType.H3, maxLines = 2)
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Txt(timeOf(event.startMillis), NeonType.H3.copy(fontSize = 17.sp))
+                Txt(eventTime(event), NeonType.H3.copy(fontSize = 17.sp))
                 StatusPill(event.status(now))
             }
         }

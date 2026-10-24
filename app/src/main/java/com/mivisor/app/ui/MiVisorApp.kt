@@ -41,13 +41,14 @@ import com.mivisor.app.ui.neon.rememberAppLayout
 import com.mivisor.app.ui.neon.stadiumLights
 import com.mivisor.app.ui.screens.CatalogScreen
 import com.mivisor.app.ui.screens.HistoryScreen
+import com.mivisor.app.ui.screens.ServicesScreen
 import com.mivisor.app.ui.screens.SettingsScreen
 import com.mivisor.app.ui.screens.SourcesScreen
 import com.mivisor.app.ui.screens.agenda.AgendaScreen
 import com.mivisor.app.ui.theme.LocalAnimations
 
 /** Pantallas. Las 4 primeras son pestañas; SOURCES ("Gestionar") se abre desde Canales. */
-private enum class Screen(val tab: Int) { CATALOG(0), AGENDA(1), HISTORY(2), SETTINGS(3), SOURCES(0) }
+private enum class Screen(val tab: Int) { CATALOG(0), AGENDA(1), HISTORY(2), SETTINGS(3), SOURCES(0), SERVICES(3) }
 
 private val TABS = listOf(
     NavTab("Canales", R.drawable.ic_apps),
@@ -118,7 +119,7 @@ fun MiVisorApp(vm: MainViewModel) {
 
     // Atrás: cualquier pantalla → Canales; en Canales, el sistema (salir).
     BackHandler(enabled = screen != Screen.CATALOG) {
-        screen = Screen.CATALOG
+        screen = if (screen == Screen.SERVICES) Screen.SETTINGS else Screen.CATALOG
     }
 
     CompositionLocalProvider(LocalAnimations provides animations, LocalAppLayout provides layout) {
@@ -179,8 +180,10 @@ fun MiVisorApp(vm: MainViewModel) {
                                 animations = it
                                 launcher.preferences.animations = it
                             },
-                            onClearCache = vm::clearCache
+                            onClearCache = vm::clearCache,
+                            onOpenServices = { screen = Screen.SERVICES }
                         )
+                        Screen.SERVICES -> ServicesScreen(onBack = { screen = Screen.SETTINGS })
                     }
                 }
                 if (layout.compact) {

@@ -27,9 +27,25 @@ class AgendaEvent(
     val awayLogo: String?,
     val competitionLogo: String? = null,
     /** Id del partido en TheSportsDB: la app pide sus canales al abrirlo (si no trae ninguno). */
-    val tvId: String? = null
+    val tvId: String? = null,
+    /** Retratos en eventos 1 contra 1 (tenis, UFC). Opcionales: nunca banderas. */
+    val homeImage: String? = null,
+    val awayImage: String? = null,
+    /** La fuente solo da el día: la hora no se inventa ("Por confirmar"). */
+    val timeTbd: Boolean = false
 ) {
     val isMatch: Boolean get() = !home.isNullOrBlank() && !away.isNullOrBlank()
+
+    /** Tenis y UFC son personas contra personas: retrato redondo en vez de escudo. */
+    val isPersonVsPerson: Boolean get() = sport in PERSON_SPORTS || homeImage != null || awayImage != null
+
+    /** Imagen a mostrar para cada participante: retrato (personas) o escudo (equipos). Null = placeholder. */
+    val homeVisual: String? get() = if (isPersonVsPerson) homeImage else homeLogo
+    val awayVisual: String? get() = if (isPersonVsPerson) awayImage else awayLogo
+
+    companion object {
+        val PERSON_SPORTS = setOf("tenis", "ufc")
+    }
 
     fun status(now: Long): EventStatus {
         val duration = when (sport) {
@@ -37,6 +53,7 @@ class AgendaEvent(
             "tenis" -> 180L
             "formula1", "motor" -> 120L
             "motogp" -> 60L
+            "ufc" -> 300L      // la velada completa
             else -> 120L
         } * 60_000L
         return when {
@@ -78,7 +95,7 @@ class Agenda(
     fun eventCount(sport: String): Int = events.count { it.sport == sport }
 
     companion object {
-        val SPORT_ORDER = listOf("futbol", "tenis", "formula1", "motogp", "baloncesto", "motor")
+        val SPORT_ORDER = listOf("futbol", "tenis", "formula1", "motogp", "ufc", "baloncesto", "motor")
     }
 
     /** Deportes cuya agenda no se ha podido actualizar (stale) o cargar (unavailable). */

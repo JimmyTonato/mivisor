@@ -40,6 +40,7 @@ object AgendaParser {
         "tennis" to "tenis",
         "formula1" to "formula1",
         "motogp" to "motogp",
+        "ufc" to "ufc",
         "basketball" to "baloncesto"
     )
 
@@ -83,7 +84,10 @@ object AgendaParser {
             homeLogo = o.str("homeLogo"),
             awayLogo = o.str("awayLogo"),
             competitionLogo = o.str("competitionLogo"),
-            tvId = o.str("tvId")
+            tvId = o.str("tvId"),
+            homeImage = o.str("homeImage")?.takeIf { it.startsWith("http") },
+            awayImage = o.str("awayImage")?.takeIf { it.startsWith("http") },
+            timeTbd = o.get("timeTbd")?.takeIf { it.isJsonPrimitive }?.let { runCatching { it.asBoolean }.getOrNull() } == true
         )
     }
 

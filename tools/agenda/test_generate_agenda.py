@@ -5,6 +5,7 @@ Ejecutar: python -m unittest discover -s tools/agenda -v
 import io
 import json
 import os
+import pathlib
 import socket
 import sys
 import tempfile
@@ -426,7 +427,8 @@ class StatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = os.path.join(tmp, "agenda.json")
             with mock.patch("sys.stderr", new=io.StringIO()):
-                code = gen.main(["--out", out], env=SECRETS, http_factory=lambda rec: FakeHttp(failing), now=NOW)
+                code = gen.main(["--out", out], env=SECRETS, http_factory=lambda rec: FakeHttp(failing), now=NOW,
+                                sleep=lambda s: None)
             self.assertEqual(code, gen.EXIT_ALL_FAILED)
             self.assertFalse(os.path.exists(out))
 
@@ -452,11 +454,11 @@ class SecurityAndEndToEndTests(unittest.TestCase):
 
             with mock.patch("sys.stderr", new=stderr):
                 code = gen.main(["--out", out, "--previous", prev, "--debug-dir", debug],
-                                env=SECRETS, http_factory=factory, now=NOW)
+                                env=SECRETS, http_factory=factory, now=NOW, sleep=lambda s: None)
             self.assertEqual(code, 0)
-            blobs = [open(out, encoding="utf-8").read(), stderr.getvalue()]
+            blobs = [pathlib.Path(out).read_text(encoding="utf-8"), stderr.getvalue()]
             for name in os.listdir(debug):
-                blobs.append(open(os.path.join(debug, name), encoding="utf-8").read())
+                blobs.append(pathlib.Path(debug, name).read_text(encoding="utf-8"))
             for secret in SECRETS.values():
                 for blob in blobs:
                     self.assertNotIn(secret, blob)

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -249,11 +251,44 @@ fun Crest(url: String?, name: String, size: Dp, modifier: Modifier = Modifier) {
     }
 }
 
+/** Retrato redondo de un deportista. Sin foto: iniciales sobre fondo neutro (nunca una bandera). */
+@Composable
+fun Portrait(url: String?, name: String, size: Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(size).clip(CircleShape)
+            .background(Brush.verticalGradient(listOf(Neon.PanelHi, Neon.Panel)))
+            .border(1.dp, Neon.Stroke, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        RemoteImage(url, size, crop = true) {
+            Txt(
+                CatalogBuilder.initialsOf(name),
+                TextStyle(color = Neon.Dim, fontSize = (size.value * 0.34f).sp, fontWeight = FontWeight.Bold)
+            )
+        }
+    }
+}
+
+/** Escudo (equipos) o retrato (personas). */
+@Composable
+fun Participant(url: String?, name: String, size: Dp, portrait: Boolean, modifier: Modifier = Modifier) {
+    if (portrait) Portrait(url, name, size, modifier) else Crest(url, name, size, modifier)
+}
+
+/** Hora del evento, o "--:--" si la fuente aún no la ha dado. */
+fun eventTime(event: com.mivisor.app.model.AgendaEvent): String =
+    if (event.timeTbd) "--:--" else timeOf(event.startMillis)
+
+/** Igual, en texto: "Hora por confirmar". */
+fun eventTimeText(event: com.mivisor.app.model.AgendaEvent): String =
+    if (event.timeTbd) "Hora por confirmar" else timeOf(event.startMillis)
+
 @DrawableRes
 fun sportIcon(sport: String): Int = when (sport) {
     "baloncesto" -> R.drawable.ic_sport_baloncesto
     "tenis" -> R.drawable.ic_sport_tenis
     "motor", "formula1", "motogp" -> R.drawable.ic_sport_motor
+    "ufc" -> R.drawable.ic_sport_ufc
     else -> R.drawable.ic_sport_futbol
 }
 
@@ -269,6 +304,7 @@ fun sportLabel(sport: String): String = when (sport) {
     "tenis" -> "Tenis"
     "formula1" -> "Fórmula 1"
     "motogp" -> "MotoGP"
+    "ufc" -> "UFC"
     "motor" -> "Motor"
     else -> sport.replaceFirstChar { it.uppercase() }
 }
@@ -285,19 +321,20 @@ fun dayTitle(millis: Long): String =
 @Composable
 fun TeamsVs(
     home: String, homeLogo: String?, away: String, awayLogo: String?,
-    crestSize: Dp, nameWidth: Dp, modifier: Modifier = Modifier, nameStyle: TextStyle = NeonType.Team
+    crestSize: Dp, nameWidth: Dp, modifier: Modifier = Modifier, nameStyle: TextStyle = NeonType.Team,
+    portrait: Boolean = false
 ) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        TeamColumn(home, homeLogo, crestSize, nameWidth, nameStyle)
+        TeamColumn(home, homeLogo, crestSize, nameWidth, nameStyle, portrait)
         Txt("VS", NeonType.Small.copy(fontWeight = FontWeight.Bold), color = Neon.Faint, modifier = Modifier.padding(horizontal = 6.dp))
-        TeamColumn(away, awayLogo, crestSize, nameWidth, nameStyle)
+        TeamColumn(away, awayLogo, crestSize, nameWidth, nameStyle, portrait)
     }
 }
 
 @Composable
-fun TeamColumn(name: String, logo: String?, crestSize: Dp, width: Dp, style: TextStyle = NeonType.Team) {
+fun TeamColumn(name: String, logo: String?, crestSize: Dp, width: Dp, style: TextStyle = NeonType.Team, portrait: Boolean = false) {
     Column(Modifier.width(width), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Crest(logo, name, crestSize)
+        Participant(logo, name, crestSize, portrait)
         Txt(name, style)
     }
 }

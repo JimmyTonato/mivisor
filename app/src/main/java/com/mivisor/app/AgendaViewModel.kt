@@ -307,7 +307,7 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
         val PRIORITY = linkedMapOf(
             "champions" to 100, "liga de campeones" to 100, "real madrid" to 95, "barcelona" to 95,
             "la liga" to 90, "laliga" to 90, "copa del rey" to 85, "premier" to 80, "nba" to 75,
-            "fórmula 1" to 75, "formula 1" to 75, "motogp" to 70, "atp" to 65, "wta" to 60,
+            "fórmula 1" to 75, "formula 1" to 75, "motogp" to 70, "ufc" to 68, "atp" to 65, "wta" to 60,
             "europa league" to 60, "serie a" to 55, "bundesliga" to 55, "ligue 1" to 50, "acb" to 50, "endesa" to 50
         )
     }

@@ -125,6 +125,8 @@ fun RemoteImage(
     url: String?,
     size: Dp,
     modifier: Modifier = Modifier,
+    /** true = recorta para llenar (retratos); false = encaja entera (escudos y logos). */
+    crop: Boolean = false,
     fallback: @Composable () -> Unit
 ) {
     if (url.isNullOrBlank()) {
@@ -139,7 +141,7 @@ fun RemoteImage(
     Box(modifier.size(size), contentAlignment = Alignment.Center) {
         val image = bitmap
         if (image != null) {
-            Image(image, contentDescription = null, modifier = Modifier.size(size), contentScale = ContentScale.Fit)
+            Image(image, contentDescription = null, modifier = Modifier.size(size), contentScale = if (crop) ContentScale.Crop else ContentScale.Fit)
         } else {
             fallback()
         }

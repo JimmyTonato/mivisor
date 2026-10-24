@@ -36,7 +36,8 @@ fun SettingsScreen(
     prefs: PlayerPreferences,
     animations: Boolean,
     onAnimationsChange: (Boolean) -> Unit,
-    onClearCache: () -> Unit
+    onClearCache: () -> Unit,
+    onOpenServices: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var selector by remember { mutableStateOf(prefs.selectorEnabled) }
@@ -102,6 +103,12 @@ fun SettingsScreen(
                 "URL de agenda.json (vacío = la de tu repositorio)",
                 placeholder = BuildConfig.AGENDA_URL.ifBlank { "https://raw.githubusercontent.com/usuario/repo/agenda-data/agenda.json" },
                 keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
+            )
+
+            TvButton("Servicios y diagnóstico", onOpenServices, icon = R.drawable.ic_list, style = ButtonStyle.GHOST)
+            Txt(
+                "Comprueba qué fuentes de la agenda, los canales y los retratos están funcionando.",
+                Type.Caption, color = Palette.TextDim
             )
 
             SectionLabel("Rendimiento", Modifier.padding(top = 12.dp))

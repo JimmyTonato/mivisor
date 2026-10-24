@@ -25,7 +25,7 @@ HOURS_BACK = 6
 DAYS_AHEAD = 14
 
 # Valores de "sport" que entiende la APK. "motor" y "baloncesto" se mantienen por compatibilidad.
-SPORTS = ("futbol", "tenis", "formula1", "motogp", "motor", "baloncesto")
+SPORTS = ("futbol", "tenis", "formula1", "motogp", "ufc", "motor", "baloncesto")
 
 
 @dataclass
@@ -51,6 +51,13 @@ class Event:
     competitionLogo: Optional[str] = None
     # Identificador del partido para pedir sus canales de TV (lo usa la app al abrir el partido).
     tvId: Optional[str] = None
+    # Retratos de los participantes en eventos 1 contra 1 (tenis, UFC). Opcionales: nunca banderas.
+    homeImage: Optional[str] = None
+    awayImage: Optional[str] = None
+    # La fuente solo da el día, no la hora (p. ej. una velada UFC aún sin horario): no se inventa.
+    timeTbd: bool = False
+    # Cartelera (UFC): [{"red", "blue", "weightClass", "section", "order", "main"}]. Opcional.
+    card: list = field(default_factory=list)
     # Datos internos del proveedor (jornada, temporada, nombres completos…) para enriquecer el
     # evento. NUNCA se escriben en agenda.json.
     ref: dict = field(default_factory=dict, compare=False, repr=False)
@@ -129,8 +136,14 @@ def event_to_json(ev: Event) -> dict:
         "awayLogo": ev.awayLogo,
         "competitionLogo": ev.competitionLogo,
         "tvId": ev.tvId,
+        "homeImage": ev.homeImage,
+        "awayImage": ev.awayImage,
     }
     data = {k: v for k, v in data.items() if v not in (None, "")}
+    if ev.timeTbd:
+        data["timeTbd"] = True
+    if ev.card:
+        data["card"] = ev.card
     data["channels"] = [{k: v for k, v in vars(c).items() if v is not None} for c in ev.channels]
     return data
 
@@ -151,6 +164,9 @@ def event_from_json(data: dict) -> Optional[Event]:
             home=data.get("home"), away=data.get("away"), channels=channels,
             homeLogo=data.get("homeLogo"), awayLogo=data.get("awayLogo"), competitionLogo=data.get("competitionLogo"),
             tvId=str(data["tvId"]) if data.get("tvId") else None,
+            homeImage=data.get("homeImage"), awayImage=data.get("awayImage"),
+            timeTbd=bool(data.get("timeTbd")),
+            card=[c for c in data.get("card") or [] if isinstance(c, dict)],
         )
     except (KeyError, TypeError, AttributeError):
         return None

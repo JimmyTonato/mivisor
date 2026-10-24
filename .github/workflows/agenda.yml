@@ -1,14 +1,16 @@
 name: Agenda deportiva
 
-# Genera agenda.json desde APIs deportivas estructuradas y lo publica en la rama `agenda-data`.
-#   Football-Data.org · Live Tennis API · Blacktop (MotoGP) · Jolpica (F1)
-#     → generate_agenda.py → agenda.json → rama agenda-data → APK
-# La app lo descarga (con caché y ETag, cada 15 min como máximo) de:
+# Genera agenda.json (y services.json para el diagnóstico de la APK) y lo publica en la rama `agenda-data`.
+#   Agenda:   Football-Data · Live Tennis · Jolpica (F1) · Blacktop (MotoGP) · Cito (UFC)
+#   TV:       futbolenlatv.es/deporte (una sola descarga por ejecución, respetando robots.txt)
+#   Retratos: Cito (UFC) · TheSportsDB (con caché larga en athletes.json)
+# La app descarga (con caché y ETag, como mucho cada 15 min) desde:
 #   https://raw.githubusercontent.com/<usuario>/<repo>/agenda-data/agenda.json
+#   https://raw.githubusercontent.com/<usuario>/<repo>/agenda-data/services.json
 #
-# Secrets necesarios (Settings → Secrets and variables → Actions):
-#   FOOTBALL_DATA_TOKEN, LIVE_TENNIS_API_KEY, BLACKTOP_API_KEY
-# Opcional (identificar partidos en TheSportsDB): THESPORTSDB_API_KEY. Sin él se usa la clave pública gratuita.
+# Secrets (Settings → Secrets and variables → Actions):
+#   FOOTBALL_DATA_TOKEN, LIVE_TENNIS_API_KEY, BLACKTOP_API_KEY, CITO_API_KEY
+#   Opcional: THESPORTSDB_API_KEY (sin él se usa la clave pública gratuita de TheSportsDB)
 on:
   schedule:
     - cron: "17 * * * *"   # una vez por hora, en el minuto 17
@@ -40,26 +42,44 @@ jobs:
       - name: Tests del generador
         run: python -m unittest discover -s tools/agenda -v
 
-      # Última agenda publicada: permite conservar datos (estado "stale") si un proveedor falla.
-      - name: Recuperar agenda anterior
+      # Estado publicado en la ejecución anterior: agenda (para "stale"), historial de servicios,
+      # catálogo de retratos y caché de UFC. Si no existe (primera vez), se empieza de cero.
+      - name: Recuperar estado anterior
         run: |
+          mkdir -p state publish
           if git fetch -q --depth 1 origin agenda-data 2>/dev/null; then
-            git show FETCH_HEAD:agenda.json > previous.json 2>/dev/null || rm -f previous.json
+            for f in agenda.json services.json athletes.json ufc-cache.json; do
+              git show "FETCH_HEAD:$f" > "state/$f" 2>/dev/null || rm -f "state/$f"
+            done
           fi
-          if [ -f previous.json ]; then echo "Agenda anterior recuperada"; else echo "Sin agenda anterior"; fi
+          ls -1 state || true
 
-      # Si TODOS los proveedores fallan, el script termina con código 3 y el workflow se detiene
-      # aquí: no se publica nada y la rama agenda-data conserva la última agenda válida.
-      - name: Generar agenda.json
+      # Código 3 = fallan TODAS las fuentes de agenda: no se genera agenda.json nueva, pero sí
+      # services.json, para poder ver el problema desde la APK. Se publica la última agenda válida.
+      - name: Generar agenda.json y services.json
+        id: generate
         env:
           FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
           LIVE_TENNIS_API_KEY: ${{ secrets.LIVE_TENNIS_API_KEY }}
           BLACKTOP_API_KEY: ${{ secrets.BLACKTOP_API_KEY }}
+          CITO_API_KEY: ${{ secrets.CITO_API_KEY }}
           THESPORTSDB_API_KEY: ${{ secrets.THESPORTSDB_API_KEY }}
-        run: python tools/agenda/generate_agenda.py --out agenda.json --previous previous.json --debug-dir debug
+        run: |
+          set +e
+          python tools/agenda/generate_agenda.py \
+            --out publish/agenda.json --previous state/agenda.json \
+            --state-dir state --publish-dir publish --debug-dir debug
+          code=$?
+          set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -ne 0 ] && [ "$code" -ne 3 ]; then exit "$code"; fi
+          if [ "$code" -eq 3 ]; then
+            if [ -f state/agenda.json ]; then cp state/agenda.json publish/agenda.json; fi
+            echo "::warning::Todas las fuentes de agenda han fallado: se mantiene la última agenda válida"
+          fi
 
-      # Respuestas crudas de los proveedores (sin cabeceras ni claves): sirven para ajustar los
-      # parsers si una API cambia su formato.
+      # Respuestas crudas de las fuentes (sin cabeceras ni claves), incluido el HTML de /deporte:
+      # sirven para ajustar los parsers si una fuente cambia su formato.
       - name: Guardar respuestas de depuración
         if: always()
         uses: actions/upload-artifact@v4
@@ -67,30 +87,42 @@ jobs:
           name: agenda-debug-${{ github.run_number }}
           path: |
             debug/
-            agenda.json
+            publish/
           if-no-files-found: ignore
           retention-days: 3
 
-      # Publica sin reemplazar el historial existente de agenda-data.
+      # Publica los JSON de estado sin reemplazar el historial de agenda-data.
       - name: Publicar en la rama agenda-data
         if: github.ref == 'refs/heads/main' || github.event_name == 'schedule'
         run: |
+          if [ ! -f publish/agenda.json ]; then
+            echo "No hay ninguna agenda válida que publicar"; exit 1
+          fi
           if git ls-remote --exit-code --heads origin agenda-data > /dev/null; then
             git fetch -q --depth 1 origin agenda-data
-            git worktree add --detach publish FETCH_HEAD
+            git worktree add --detach published-state FETCH_HEAD
           else
             status=$?
             if [ "$status" -ne 2 ]; then exit "$status"; fi
-            git worktree add --detach publish HEAD
-            git -C publish switch --orphan agenda-data
+            git worktree add --detach published-state HEAD
+            git -C published-state switch --orphan agenda-data
           fi
-          cp agenda.json publish/agenda.json
-          cd publish
+          for f in agenda.json services.json athletes.json ufc-cache.json; do
+            if [ -f "publish/$f" ]; then cp "publish/$f" "published-state/$f"; fi
+          done
+          cd published-state
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add agenda.json
+          git add --all
           if ! git diff --cached --quiet; then
             git commit -q -m "Agenda $(date -u +%Y-%m-%dT%H:%MZ)"
           fi
           git push -q origin HEAD:refs/heads/agenda-data
           echo "Publicado: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/agenda-data/agenda.json"
+
+      # Fallo total: se ha publicado services.json con el problema, pero el workflow queda en rojo.
+      - name: Marcar fallo total
+        if: steps.generate.outputs.code == '3'
+        run: |
+          echo "::error::Ninguna fuente de agenda ha respondido; revisa Servicios en la APK o el log"
+          exit 1

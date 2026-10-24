@@ -117,4 +117,26 @@ class AgendaFiltersTest {
         val visible = AgendaFilters.bySport(events, "futbol", "LALIGA").filter { it.startMillis in today }
         assertEquals(listOf("f1"), visible.map { it.id })
     }
+
+    private val allLeagues = listOf(
+        ev("l", "futbol", "LaLiga", 1_000), ev("c", "futbol", "UEFA Champions League", 1_100),
+        ev("p", "futbol", "Premier League", 1_200), ev("s", "futbol", "Serie A", 1_300),
+        ev("b", "futbol", "Bundesliga", 1_400), ev("f", "futbol", "Ligue 1", 1_500),
+        ev("tomorrow", "futbol", "Serie A", 90_000), ev("next", "futbol", "Premier League", 200_000)
+    )
+
+    @Test fun eachLeagueFilter() {
+        mapOf("LALIGA" to "l", "CHAMPIONS" to "c", "PREMIER" to "p", "SERIE_A" to "s", "BUNDESLIGA" to "b", "LIGUE_1" to "f")
+            .forEach { (key, id) ->
+                val today = AgendaFilters.bySport(allLeagues, "futbol", key).filter { it.startMillis < 50_000 }
+                assertEquals(key to listOf(id), key to today.map { it.id })
+            }
+    }
+
+    @Test fun tomorrowAndNextCombineWithLeague() {
+        val tomorrow = 50_000L until 150_000L
+        val next = 150_000L until 400_000L
+        assertEquals(listOf("tomorrow"), AgendaFilters.bySport(allLeagues, "futbol", "SERIE_A").filter { it.startMillis in tomorrow }.map { it.id })
+        assertEquals(listOf("next"), AgendaFilters.bySport(allLeagues, "futbol", "PREMIER").filter { it.startMillis in next }.map { it.id })
+    }
 }
