@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- windowBackground oscuro: sin destello blanco al arrancar en la TV. -->
+    <style name="Theme.MiVisor" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_bg</item>
+        <item name="android:colorBackground">@color/window_bg</item>
+        <item name="android:statusBarColor">@color/window_bg</item>
+        <item name="android:navigationBarColor">@color/window_bg</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:colorAccent">#FFB020</item>
+    </style>
+</resources>

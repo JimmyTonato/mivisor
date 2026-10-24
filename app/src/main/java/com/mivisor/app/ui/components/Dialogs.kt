@@ -1,0 +1,241 @@
+package com.mivisor.app.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.mivisor.app.R
+import com.mivisor.app.data.Codes
+import com.mivisor.app.model.Channel
+import com.mivisor.app.player.RememberScope
+import com.mivisor.app.player.StreamLauncher
+import com.mivisor.app.ui.theme.Palette
+import com.mivisor.app.ui.theme.Type
+
+@Composable
+fun TvDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    subtitle: String? = null,
+    width: androidx.compose.ui.unit.Dp = 560.dp,
+    initialFocus: FocusRequester? = null,
+    content: @Composable () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        if (initialFocus != null) InitialFocus(initialFocus)
+        Column(
+            Modifier
+                .width(width)
+                .background(Palette.Surface, RoundedCornerShape(22.dp))
+                .border(1.dp, Palette.Outline, RoundedCornerShape(22.dp))
+                .padding(28.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Txt(title, Type.Title, maxLines = 2)
+                if (subtitle != null) Txt(subtitle, Type.Caption, maxLines = 2)
+            }
+            content()
+        }
+    }
+}
+
+/** Pide el foco tras el primer frame (con reintentos: la ventana del diálogo tarda en adjuntarse). */
+@Composable
+fun InitialFocus(requester: FocusRequester) {
+    LaunchedEffect(requester) {
+        repeat(5) {
+            withFrameNanos { }
+            if (runCatching { requester.requestFocus() }.isSuccess) return@LaunchedEffect
+        }
+    }
+}
+
+@Composable
+fun ChannelOptionsDialog(
+    channel: Channel,
+    onDismiss: () -> Unit,
+    onOpen: () -> Unit,
+    onOpenWith: () -> Unit,
+    onShare: () -> Unit,
+    onForget: () -> Unit
+) {
+    val first = remember { FocusRequester() }
+    TvDialog(
+        title = channel.name,
+        subtitle = listOfNotNull(channel.group, channel.kind.label).joinToString(" · "),
+        onDismiss = onDismiss,
+        initialFocus = first
+    ) {
+        Txt(channel.url, Type.Caption, color = Palette.TextFaint, maxLines = 2)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            MenuRow("Abrir", R.drawable.ic_play, onOpen, Modifier.focusRequester(first))
+            MenuRow("Abrir con…", R.drawable.ic_apps, onOpenWith)
+            MenuRow("Compartir enlace", R.drawable.ic_share, onShare)
+            MenuRow("Olvidar la app recordada para este canal", R.drawable.ic_refresh, onForget)
+        }
+    }
+}
+
+@Composable
+fun MenuRow(label: String, icon: Int, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false) {
+    TvClickable(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) Palette.SurfaceHi else androidx.compose.ui.graphics.Color.Transparent
+    ) { focused ->
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Icon(icon, if (focused) Palette.OnFocus else if (selected) Palette.Accent else Palette.TextDim)
+            Txt(label, Type.Label, color = if (focused) Palette.OnFocus else Palette.Text, modifier = Modifier.weight(1f))
+            if (selected) Txt("✓", Type.Label, color = if (focused) Palette.OnFocus else Palette.Accent)
+        }
+    }
+}
+
+@Composable
+fun AppPickerDialog(
+    channel: Channel,
+    apps: List<StreamLauncher.AppChoice>,
+    onDismiss: () -> Unit,
+    onPick: (StreamLauncher.AppChoice, RememberScope) -> Unit
+) {
+    var scope by remember { mutableStateOf(RememberScope.ONCE) }
+    val first = remember { FocusRequester() }
+    val scopes = RememberScope.values().filter { it != RememberScope.GROUP || channel.group != null }
+    TvDialog(title = "Abrir con", subtitle = channel.name, onDismiss = onDismiss, width = 640.dp, initialFocus = first) {
+        LazyColumn(
+            Modifier.fillMaxWidth().heightIn(max = 260.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            itemsIndexed(apps, key = { _, app -> app.packageName }) { index, app ->
+                MenuRow(
+                    app.label, R.drawable.ic_play, { onPick(app, scope) },
+                    if (index == 0) Modifier.focusRequester(first) else Modifier
+                )
+            }
+        }
+        Divider()
+        SectionLabel("Recordar elección")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            scopes.forEach { option ->
+                TvButton(
+                    label = shortLabel(option),
+                    onClick = { scope = option },
+                    style = if (scope == option) ButtonStyle.PRIMARY else ButtonStyle.GHOST
+                )
+            }
+        }
+    }
+}
+
+private fun shortLabel(scope: RememberScope) = when (scope) {
+    RememberScope.ONCE -> "No"
+    RememberScope.CHANNEL -> "Canal"
+    RememberScope.GROUP -> "Grupo"
+    RememberScope.PROTOCOL -> "Tipo de enlace"
+}
+
+enum class SourceDialogMode { OPEN_CODE, ADD, EDIT }
+enum class SourceAction { OPEN_ONLY, SAVE_AND_OPEN, SAVE }
+
+@Composable
+fun SourceDialog(
+    mode: SourceDialogMode,
+    initialName: String = "",
+    initialCode: String = "",
+    onDismiss: () -> Unit,
+    onResult: (name: String, code: String, action: SourceAction) -> Unit
+) {
+    var name by remember { mutableStateOf(initialName) }
+    var code by remember { mutableStateOf(initialCode) }
+    var showError by remember { mutableStateOf(false) }
+    val valid = Codes.normalizeOrNull(code) != null
+    val first = remember { FocusRequester() }
+
+    fun submit(action: SourceAction) {
+        if (!valid) {
+            showError = true
+            return
+        }
+        onResult(name, code, action)
+    }
+
+    val title = when (mode) {
+        SourceDialogMode.OPEN_CODE -> "Abrir un código"
+        SourceDialogMode.ADD -> "Nueva categoría"
+        SourceDialogMode.EDIT -> "Editar categoría"
+    }
+    val subtitle = when (mode) {
+        SourceDialogMode.OPEN_CODE -> "Escribe el código. Puedes guardarlo como categoría para tenerlo en el menú."
+        else -> "Las categorías aparecen en el menú lateral en el orden que elijas."
+    }
+    val codeError = if (showError && !valid) "Solo letras, números, puntos y guiones" else null
+
+    TvDialog(title = title, subtitle = subtitle, onDismiss = onDismiss, initialFocus = first) {
+        if (mode == SourceDialogMode.OPEN_CODE) {
+            TvTextField(code, { code = it; showError = false }, "Código", placeholder = "p. ej. deportes", error = codeError, focusRequester = first)
+            TvTextField(name, { name = it }, "Nombre (opcional, para guardarlo)", placeholder = "p. ej. Deportes")
+        } else {
+            TvTextField(name, { name = it }, "Nombre", placeholder = "p. ej. Deportes", focusRequester = first)
+            TvTextField(code, { code = it; showError = false }, "Código", placeholder = "p. ej. deportes", error = codeError)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            when (mode) {
+                SourceDialogMode.OPEN_CODE -> {
+                    TvButton("Abrir", { submit(SourceAction.OPEN_ONLY) }, icon = R.drawable.ic_play, style = ButtonStyle.PRIMARY)
+                    TvButton("Guardar y abrir", { submit(SourceAction.SAVE_AND_OPEN) }, icon = R.drawable.ic_add)
+                }
+                SourceDialogMode.ADD ->
+                    TvButton("Guardar y abrir", { submit(SourceAction.SAVE_AND_OPEN) }, icon = R.drawable.ic_add, style = ButtonStyle.PRIMARY)
+                SourceDialogMode.EDIT ->
+                    TvButton("Guardar", { submit(SourceAction.SAVE) }, style = ButtonStyle.PRIMARY)
+            }
+            TvButton("Cancelar", onDismiss, style = ButtonStyle.GHOST)
+        }
+    }
+}
+
+@Composable
+fun ConfirmDialog(
+    title: String,
+    message: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val cancel = remember { FocusRequester() }
+    TvDialog(title = title, subtitle = message, onDismiss = onDismiss, width = 480.dp, initialFocus = cancel) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // El foco empieza en "Cancelar": borrar nunca debe ser la opción por defecto.
+            TvButton("Cancelar", onDismiss, Modifier.focusRequester(cancel), style = ButtonStyle.GHOST)
+            TvButton(confirmLabel, onConfirm, icon = R.drawable.ic_delete, style = ButtonStyle.DANGER)
+        }
+    }
+}

@@ -1,11 +1,13 @@
 plugins {
     id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
 }
 
-// GitHub rellena esto solo al compilar: la app leerá el config.json de TU repositorio
-def repo   = System.getenv("GITHUB_REPOSITORY") ?: "TU_USUARIO/TU_REPO"
-def branch = System.getenv("GITHUB_REF_NAME") ?: "main"
-def build  = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+// GitHub Actions: cada ejecución genera un versionCode mayor que el anterior.
+// El desplazamiento (1000) garantiza que la v4 actualiza encima de cualquier build de la v3.
+def runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInteger()
+def releaseKeystore = System.getenv("SIGNING_KEYSTORE_PATH")
 
 android {
     namespace 'com.mivisor.app'
@@ -13,31 +15,108 @@ android {
 
     defaultConfig {
         applicationId "com.mivisor.app"
-        minSdk 26
+        // API 21 (Android 5): cubre los boxes Android TV antiguos y baratos.
+        minSdk 21
         targetSdk 35
-        versionCode build
-        versionName "1.${build}"
-        buildConfigField "String", "API_URL", "\"https://api.github.com/repos/${repo}/contents/config.json?ref=${branch}\""
-        buildConfigField "String", "RAW_URL", "\"https://raw.githubusercontent.com/${repo}/${branch}/config.json\""
+        versionCode 1000 + runNumber
+        versionName "4.${runNumber}"
+
+        // Solo español e inglés: elimina cientos de traducciones de AndroidX del APK.
+        resourceConfigurations += ["es", "en"]
+
+        buildConfigField "String", "STREAM_DOMAIN", '"elcano.top"'
+        buildConfigField "String", "ACESTREAM_TEMPLATE", '"http://127.0.0.1:6878/ace/getstream?id={id}"'
+        buildConfigField "String", "MAGNET_TEMPLATE", '"http://remoto/add?uri={id}"'
     }
 
-    buildFeatures { buildConfig true }
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
 
-    // Clave fija para que las versiones nuevas se instalen encima sin desinstalar
     signingConfigs {
-        debug {
+        // Clave de desarrollo estable (la misma que la v3): permite actualizar encima sin desinstalar.
+        dev {
             storeFile file("debug.keystore")
             storePassword "android"
             keyAlias "androiddebugkey"
             keyPassword "android"
         }
+        // Clave privada opcional desde GitHub Secrets (ver README).
+        if (releaseKeystore) {
+            release {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
     }
+
     buildTypes {
-        debug { signingConfig signingConfigs.debug }
+        debug {
+            signingConfig signingConfigs.dev
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
+        release {
+            // R8 + recorte de recursos: Compose en modo release es MUCHO más rápido que en debug.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig releaseKeystore ? signingConfigs.release : signingConfigs.dev
+        }
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    kotlinOptions { jvmTarget = '17' }
+
+    packaging {
+        resources {
+            excludes += [
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/*.version",
+                "/META-INF/*.kotlin_module",
+                "DebugProbesKt.bin",
+                "kotlin-tooling-metadata.json"
+            ]
+        }
+    }
+
+    dependenciesInfo {
+        includeInApk false
+        includeInBundle false
+    }
+
+    lint {
+        // El lint informa (se sube como artifact) pero no bloquea la build.
+        abortOnError false
+        checkReleaseBuilds false
+        disable += ["GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion", "OldTargetApi"]
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+dependencies {
+    // Compose 1.7 (BOM 2024.12.01). Sin tv-material: los componentes TV son propios y ligeros.
+    implementation platform('androidx.compose:compose-bom:2024.12.01')
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.foundation:foundation'
+
+    implementation 'androidx.activity:activity-compose:1.9.3'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7'
+    implementation 'androidx.datastore:datastore-preferences:1.1.1'
+    // Instala los perfiles de arranque de Compose también en APKs instalados a mano (sideload).
+    implementation 'androidx.profileinstaller:profileinstaller:1.4.1'
+    implementation 'com.google.code.gson:gson:2.11.0'
+
+    testImplementation 'junit:junit:4.13.2'
 }
