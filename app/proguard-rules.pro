@@ -3,6 +3,8 @@
 -keep class com.mivisor.app.model.StreamItem { *; }
 -keep class com.mivisor.app.model.HistoryItem { *; }
 -keep class com.mivisor.app.model.SourceProfile { *; }
+# Historial de reproducciones (v11): se guarda con Gson.
+-keep class com.mivisor.app.model.PlaybackEntry { *; }
 -keepattributes Signature, *Annotation*, EnclosingMethod, InnerClasses
 
 # Logs fuera en release.

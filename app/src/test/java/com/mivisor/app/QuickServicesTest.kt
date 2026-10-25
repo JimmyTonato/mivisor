@@ -58,7 +58,7 @@ class QuickServicesTest {
     @Test fun warpCase2AlreadyConnected() {
         val status = WarpProtocol.parse("CONNECTED", "ALREADY_CONNECTED", true)
         assertEquals(WarpPhase.CONNECTED, status.phase)
-        assertEquals(RowAction.WARP_DISCONNECT, QuickServiceText.warp(status).onOk)
+        assertEquals(RowAction.PANEL, QuickServiceText.warp(status).onOk)        // OK abre el panel: nunca desconecta por accidente
     }
 
     // Caso 3: conectada → OFF → DISCONNECTING → DISCONNECTED.
@@ -71,7 +71,7 @@ class QuickServicesTest {
     // Caso 4: VPN no autorizada → "AUTORIZAR VPN", venga como estado, detalle o extra.
     @Test fun warpCase4PermissionRequired() {
         for (r in listOf(row("PERMISSION_REQUIRED"), row("ERROR", "VPN_CONSENT_MISSING"), row("DISCONNECTED", null, false))) {
-            assertEquals("AUTORIZAR VPN", r.actionLabel)
+            assertEquals("Autorizar", r.actionLabel)
             assertEquals(RowAction.WARP_AUTHORIZE, r.onOk)
             assertEquals(Indicator.WARNING, r.indicator)
             assertNull(r.toggle)                                        // no se muestra el interruptor
@@ -102,14 +102,14 @@ class QuickServicesTest {
         val stuck = WarpProtocol.afterTimeout(pending, WarpStatus(WarpPhase.CONNECTING))
         assertEquals(WarpStatus(WarpPhase.ERROR, "CONNECT_TIMEOUT"), stuck)
         assertEquals("No se pudo conectar", QuickServiceText.warp(stuck).status)
-        assertEquals(RowAction.REFRESH, QuickServiceText.warp(stuck).onOk)
+        assertEquals(RowAction.WARP_CONNECT, QuickServiceText.warp(stuck).onOk)   // Reintentar = volver a conectar
         assertEquals("DISCONNECT_TIMEOUT", WarpProtocol.afterTimeout(WarpStatus(WarpPhase.DISCONNECTING), null).detail)
     }
 
     @Test fun warpNeedsSetupOpensApp() {
         val r = row("ERROR", "MISSING_CERTIFICATE")
-        assertEquals("Requiere configuración", r.status)
-        assertEquals("ABRIR WARP", r.actionLabel)
+        assertEquals("Falta configurar", r.status)
+        assertEquals("Configurar", r.actionLabel)
         assertEquals(RowAction.WARP_OPEN_APP, r.onOk)
         assertEquals(WarpPhase.ERROR, WarpProtocol.parse("ERROR", "START_FAILED").phase)
         assertEquals(WarpPhase.ERROR, WarpProtocol.parse("¿?", null).phase)       // estado desconocido: sin crash
@@ -121,7 +121,7 @@ class QuickServicesTest {
     @Test fun aceCase1StoppedThenStarting() {
         val stopped = QuickServiceText.ace(AceStatus(AcePhase.STOPPED, 6878))
         assertEquals("Motor detenido", stopped.status)
-        assertEquals("INICIAR", stopped.actionLabel)
+        assertEquals("Iniciar", stopped.actionLabel)
         assertEquals(RowAction.ACE_START, stopped.onOk)
         assertEquals("Iniciando…", QuickServiceText.ace(AceStatus(AcePhase.STARTING)).status)
         assertEquals(Indicator.BUSY, QuickServiceText.ace(AceStatus(AcePhase.STARTING)).indicator)
@@ -130,10 +130,10 @@ class QuickServicesTest {
     // Caso 2: ya READY → "Motor activo", y SIN interruptor OFF falso (no hay apagado oficial).
     @Test fun aceCase2ReadyHasNoFakeOff() {
         val ready = QuickServiceText.ace(AceStatus(AcePhase.READY, 6878, "3.1.70"))
-        assertEquals("Motor activo", ready.status)
+        assertEquals("Activo", ready.status)
         assertNull(ready.toggle)
         assertNull(ready.actionLabel)
-        assertEquals(RowAction.REFRESH, ready.onOk)
+        assertEquals(RowAction.PANEL, ready.onOk)
     }
 
     // Caso 3: no instalado.
@@ -145,7 +145,7 @@ class QuickServicesTest {
     @Test fun aceCase4StartFailed() {
         val r = QuickServiceText.ace(AceStatus(AcePhase.ERROR, error = AceError.START_FAILED))
         assertEquals("No se pudo iniciar", r.status)
-        assertEquals("REINTENTAR", r.actionLabel)
+        assertEquals("Reintentar", r.actionLabel)
         assertEquals(RowAction.ACE_START, r.onOk)
     }
 
@@ -156,7 +156,7 @@ class QuickServicesTest {
         assertEquals(AcePhase.ERROR, result.phase)
         assertEquals(AceError.NOT_RESPONDING, result.error)
         assertTrue(calls >= 2)
-        assertEquals("Ace Stream Engine no responde", QuickServiceText.ace(result).status)
+        assertEquals("El motor no responde", QuickServiceText.ace(result).status)
     }
 
     @Test fun aceReadyOnlyWithEvidenceOnTheRealPort() = runBlocking {

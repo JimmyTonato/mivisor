@@ -1,0 +1,112 @@
+package com.mivisor.app.data
+
+import com.mivisor.app.model.Channel
+import java.text.Normalizer
+
+/** Calidad deducida del nombre del canal ("DAZN 1 FHD", "M+ LaLiga 1080p", "Eurosport 4K"). */
+enum class Quality(val label: String, val rank: Int) {
+    UHD("4K", 4), FHD("Full HD", 3), HD("HD", 2), SD("SD", 1)
+}
+
+/** Una forma de ver un canal: el enlace concreto de un proveedor. */
+class ChannelSource(
+    val channel: Channel,
+    val providerId: String,
+    val providerName: String,
+    val quality: Quality?
+)
+
+/**
+ * Canal agrupado: "DAZN 1" aunque llegue como "DAZN 1 FHD" de un proveedor y "DAZN 1 HD" de otro.
+ * [sources] nunca está vacío y no repite enlaces.
+ */
+class ChannelGroup(
+    val key: String,
+    val name: String,
+    val sources: List<ChannelSource>
+) {
+    val providers: List<String> get() = sources.map { it.providerName }.distinct()
+    val bestQuality: Quality? get() = sources.mapNotNull { it.quality }.maxByOrNull { it.rank }
+    val initials: String get() = CatalogBuilder.initialsOf(name)
+    val tint: Int get() = (key.hashCode() and 0x7fffffff) % CatalogBuilder.TINTS
+    val first: ChannelSource get() = sources.first()
+
+    /** Fuentes de un proveedor concreto (vista "Por proveedor"). */
+    fun only(providerId: String): ChannelGroup? =
+        sources.filter { it.providerId == providerId }.takeIf { it.isNotEmpty() }?.let { ChannelGroup(key, name, it) }
+}
+
+object ChannelGrouping {
+    private val QUALITY_WORDS = mapOf(
+        "4k" to Quality.UHD, "uhd" to Quality.UHD, "2160p" to Quality.UHD, "2160" to Quality.UHD,
+        "fhd" to Quality.FHD, "1080p" to Quality.FHD, "1080" to Quality.FHD, "fullhd" to Quality.FHD, "1080i" to Quality.FHD,
+        "hd" to Quality.HD, "720p" to Quality.HD, "720" to Quality.HD,
+        "sd" to Quality.SD, "480p" to Quality.SD, "576p" to Quality.SD
+    )
+
+    /** Palabras que no cambian qué canal es (calidad, códec, "backup"…); se quitan del nombre visible. */
+    private val NOISE = setOf(
+        "hevc", "h265", "h264", "x265", "x264", "50fps", "60fps", "hdr", "multi", "multiaudio", "backup", "alt", "op", "opcion",
+        "full"
+    )
+
+    fun quality(name: String): Quality? {
+        val words = words(name)
+        if ("full" in words && "hd" in words) return Quality.FHD
+        return words.mapNotNull { QUALITY_WORDS[it] }.maxByOrNull { it.rank }
+    }
+
+    /**
+     * Clave de agrupación: mismas palabras que usa el emparejado con la agenda ([ChannelMatcher.tokens]),
+     * es decir sin calidad, alias (M+ = Movistar) y en minúsculas. Los números se conservan:
+     * "DAZN 1" y "DAZN 2" son canales distintos.
+     */
+    fun key(name: String): String =
+        ChannelMatcher.tokens(name).joinToString(" ").ifEmpty { name.trim().lowercase() }
+
+    /** "DAZN 1 FHD [ES]" → "DAZN 1". Respeta mayúsculas originales. */
+    fun cleanName(name: String): String {
+        val withoutBrackets = name.replace(Regex("""[\[(][^\])]*[\])]"""), " ")
+        val kept = withoutBrackets.split(Regex("""\s+""")).filter { word ->
+            val w = simplify(word)
+            w.isNotEmpty() && w !in QUALITY_WORDS && w !in NOISE || (w.isEmpty() && word.any { it.isLetterOrDigit() })
+        }
+        val joined = kept.joinToString(" ").trim().trim('-', '|', '·', ':', '_', '/').trim()
+        return joined.ifEmpty { name.trim() }
+    }
+
+    /**
+     * Agrupa los canales de todos los proveedores. El orden es el de aparición (orden de proveedores y de su lista).
+     * Mismo enlace en dos proveedores = una sola fuente (la del primero).
+     */
+    fun group(providers: List<Triple<String, String, List<Channel>>>): List<ChannelGroup> {
+        val order = LinkedHashMap<String, MutableList<ChannelSource>>()
+        val names = HashMap<String, MutableList<String>>()
+        val seenUrls = HashSet<String>()
+        for ((providerId, providerName, channels) in providers) {
+            for (channel in channels) {
+                if (!seenUrls.add(channel.url.trim())) continue
+                val k = key(channel.name)
+                order.getOrPut(k) { ArrayList() } += ChannelSource(channel, providerId, providerName, quality(channel.name))
+                names.getOrPut(k) { ArrayList() } += cleanName(channel.name)
+            }
+        }
+        return order.map { (k, sources) ->
+            ChannelGroup(k, bestName(names[k].orEmpty()), sources.sortedByDescending { it.quality?.rank ?: 0 })
+        }
+    }
+
+    /** El nombre limpio más repetido; a igualdad, el más corto ("DAZN 1" antes que "DAZN 1 ES"). */
+    private fun bestName(candidates: List<String>): String =
+        candidates.groupingBy { it }.eachCount().entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key.length })
+            .firstOrNull()?.key ?: "Canal"
+
+    private fun words(name: String): List<String> =
+        Normalizer.normalize(name.lowercase(), Normalizer.Form.NFD).replace(Regex("""\p{Mn}+"""), "")
+            .replace(Regex("""[^a-z0-9]+"""), " ").trim().split(' ').filter { it.isNotEmpty() }
+
+    private fun simplify(word: String): String =
+        Normalizer.normalize(word.lowercase(), Normalizer.Form.NFD).replace(Regex("""\p{Mn}+"""), "")
+            .replace(Regex("""[^a-z0-9]+"""), "")
+}

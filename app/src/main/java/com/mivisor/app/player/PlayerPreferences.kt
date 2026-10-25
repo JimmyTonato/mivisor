@@ -42,6 +42,26 @@ class PlayerPreferences(context: Context) {
         get() = prefs.getString("agenda_url", null).orEmpty()
         set(value) = prefs.edit().putString("agenda_url", value.trim()).apply()
 
+    /** Proveedores (id) cuyo contenido se abre con la VPN conectada. */
+    fun vpnFor(providerId: String?): Boolean =
+        providerId != null && prefs.getStringSet("vpn_providers", emptySet()).orEmpty().contains(providerId)
+
+    fun setVpnFor(providerId: String, enabled: Boolean) {
+        val current = prefs.getStringSet("vpn_providers", emptySet()).orEmpty().toMutableSet()
+        if (enabled) current += providerId else current -= providerId
+        prefs.edit().putStringSet("vpn_providers", current).apply()
+    }
+
+    /** Iniciar Ace Stream al abrir MiVisor. */
+    var aceAutoStart: Boolean
+        get() = prefs.getBoolean("svc_ace_auto", false)
+        set(value) = prefs.edit().putBoolean("svc_ace_auto", value).apply()
+
+    /** Conectar la VPN al abrir MiVisor. */
+    var vpnAutoConnect: Boolean
+        get() = prefs.getBoolean("svc_vpn_auto", false)
+        set(value) = prefs.edit().putBoolean("svc_vpn_auto", value).apply()
+
     fun preferredPackage(name: String?, group: String?, scheme: String?): String? = listOfNotNull(
         name?.let { prefs.getString("app_n_$it", null) },
         group?.let { prefs.getString("app_g_$it", null) },

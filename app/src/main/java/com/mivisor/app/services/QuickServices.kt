@@ -159,41 +159,49 @@ object WarpProtocol {
     }
 }
 
-// ============================================================================ Presentación (filas de la barra lateral)
+// ============================================================================ Presentación (bloque "Servicios de reproducción")
 
+/**
+ * Jerarquía visual: correcto → verde discreto · desconectado normal → gris · requiere acción → ámbar ·
+ * error real → rojo · en curso → spinner. "VPN desconectada" (gris) no es "VPN con error" (rojo).
+ */
 enum class Indicator { OK, NEUTRAL, WARNING, ERROR, BUSY }
 
 enum class RowAction {
     NONE, REFRESH,
-    ACE_START,
-    WARP_CONNECT, WARP_DISCONNECT, WARP_AUTHORIZE, WARP_OPEN_APP
+    /** Fila correcta: OK abre el panel rápido (detalle, detener/desconectar, gestionar). */
+    PANEL,
+    ACE_START, ACE_INSTALL_HELP,
+    WARP_CONNECT, WARP_DISCONNECT, WARP_AUTHORIZE, WARP_OPEN_APP, WARP_INSTALL_HELP, WARP_SIGNATURE_HELP
 }
 
 data class ServiceRow(
     val title: String,
     val status: String,
     val indicator: Indicator,
-    /** Texto del botón de la fila (INICIAR, AUTORIZAR VPN…) o null. */
+    /** Botón de la fila ("Iniciar", "Conectar", "Autorizar"…) o null si no hay nada que hacer. */
     val actionLabel: String?,
-    /** Estado del interruptor: true = ON, false = OFF, null = no hay interruptor (p. ej. Ace Stream). */
+    /** Estado ON/OFF para Ajustes. null = no aplica (Ace Stream no tiene apagado oficial). */
     val toggle: Boolean?,
     /** Lo que hace OK sobre la fila (toda la fila es el control). */
-    val onOk: RowAction
+    val onOk: RowAction,
+    /** Explicación de una línea (panel rápido y Ajustes). */
+    val detail: String = ""
 )
 
 object QuickServiceText {
     fun ace(status: AceStatus): ServiceRow {
         val t = "Ace Stream"
         return when (status.phase) {
-            AcePhase.CHECKING -> ServiceRow(t, "Comprobando…", Indicator.BUSY, null, null, RowAction.NONE)
-            AcePhase.READY -> ServiceRow(t, "Motor activo", Indicator.OK, null, null, RowAction.REFRESH)
-            AcePhase.STARTING -> ServiceRow(t, "Iniciando…", Indicator.BUSY, null, null, RowAction.NONE)
-            AcePhase.STOPPED -> ServiceRow(t, "Motor detenido", Indicator.WARNING, "INICIAR", null, RowAction.ACE_START)
-            AcePhase.NOT_INSTALLED -> ServiceRow(t, "No instalado", Indicator.WARNING, null, null, RowAction.REFRESH)
+            AcePhase.CHECKING -> ServiceRow(t, "Comprobando…", Indicator.BUSY, null, null, RowAction.NONE, "Consultando el estado del motor.")
+            AcePhase.READY -> ServiceRow(t, "Activo", Indicator.OK, null, null, RowAction.PANEL, "Motor funcionando correctamente.")
+            AcePhase.STARTING -> ServiceRow(t, "Iniciando…", Indicator.BUSY, null, null, RowAction.NONE, "Puede tardar unos segundos.")
+            AcePhase.STOPPED -> ServiceRow(t, "Motor detenido", Indicator.WARNING, "Iniciar", null, RowAction.ACE_START, "El motor no está en ejecución.")
+            AcePhase.NOT_INSTALLED -> ServiceRow(t, "No instalado", Indicator.WARNING, "Cómo instalar", null, RowAction.ACE_INSTALL_HELP, "Necesitas instalar Ace Stream.")
             AcePhase.ERROR -> ServiceRow(
                 t,
-                if (status.error == AceError.START_FAILED) "No se pudo iniciar" else "Ace Stream Engine no responde",
-                Indicator.ERROR, "REINTENTAR", null, RowAction.ACE_START
+                if (status.error == AceError.NOT_RESPONDING) "El motor no responde" else "No se pudo iniciar",
+                Indicator.ERROR, "Reintentar", null, RowAction.ACE_START, "No se pudo iniciar el motor."
             )
         }
     }
@@ -201,28 +209,39 @@ object QuickServiceText {
     fun warp(status: WarpStatus): ServiceRow {
         val t = "VPN / WARP"
         return when (status.phase) {
-            WarpPhase.CHECKING -> ServiceRow(t, "Comprobando…", Indicator.BUSY, null, null, RowAction.NONE)
-            WarpPhase.CONNECTED -> ServiceRow(t, "Conectada", Indicator.OK, null, true, RowAction.WARP_DISCONNECT)
-            WarpPhase.DISCONNECTED -> ServiceRow(t, "Desconectada", Indicator.NEUTRAL, null, false, RowAction.WARP_CONNECT)
-            WarpPhase.CONNECTING -> ServiceRow(t, "Conectando…", Indicator.BUSY, null, true, RowAction.NONE)
-            WarpPhase.DISCONNECTING -> ServiceRow(t, "Desconectando…", Indicator.BUSY, null, false, RowAction.NONE)
+            WarpPhase.CHECKING -> ServiceRow(t, "Comprobando…", Indicator.BUSY, null, null, RowAction.NONE, "Consultando el estado de la VPN.")
+            WarpPhase.CONNECTED -> ServiceRow(t, "Conectada", Indicator.OK, null, true, RowAction.PANEL, "Tu conexión está protegida.")
+            WarpPhase.DISCONNECTED -> ServiceRow(t, "Desconectada", Indicator.NEUTRAL, "Conectar", false, RowAction.WARP_CONNECT, "La VPN no está activa.")
+            WarpPhase.CONNECTING -> ServiceRow(t, "Conectando…", Indicator.BUSY, null, true, RowAction.NONE, "Estableciendo conexión…")
+            WarpPhase.DISCONNECTING -> ServiceRow(t, "Desconectando…", Indicator.BUSY, null, false, RowAction.NONE, "Cerrando conexión…")
             WarpPhase.PERMISSION_REQUIRED ->
-                ServiceRow(t, "Se necesita autorización", Indicator.WARNING, "AUTORIZAR VPN", null, RowAction.WARP_AUTHORIZE)
+                ServiceRow(t, "Requiere autorización", Indicator.WARNING, "Autorizar", null, RowAction.WARP_AUTHORIZE, "Android necesita tu permiso.")
             WarpPhase.NEEDS_SETUP ->
-                ServiceRow(t, "Requiere configuración", Indicator.WARNING, "ABRIR WARP", null, RowAction.WARP_OPEN_APP)
-            WarpPhase.NOT_INSTALLED -> ServiceRow(t, "No instalada", Indicator.WARNING, null, null, RowAction.REFRESH)
+                ServiceRow(t, "Falta configurar", Indicator.WARNING, "Configurar", null, RowAction.WARP_OPEN_APP, "Configura la VPN / WARP.")
+            WarpPhase.NOT_INSTALLED ->
+                ServiceRow(t, "No instalada", Indicator.WARNING, "Cómo instalar", null, RowAction.WARP_INSTALL_HELP, "No se encontró la aplicación.")
             WarpPhase.SIGNATURE_MISMATCH ->
-                ServiceRow(t, "Sin permiso de control (firma)", Indicator.ERROR, null, null, RowAction.REFRESH)
-            WarpPhase.ERROR -> ServiceRow(
-                t,
-                when (status.detail) {
-                    WarpProtocol.DETAIL_CONNECT_TIMEOUT -> "No se pudo conectar"
-                    WarpProtocol.DETAIL_DISCONNECT_TIMEOUT -> "No se pudo desconectar"
-                    "NO_RESPONSE" -> "No se pudo comunicar con WARP"
-                    else -> "Error de WARP"
-                },
-                Indicator.ERROR, "REINTENTAR", null, RowAction.REFRESH
-            )
+                ServiceRow(t, "Sin permiso de control", Indicator.ERROR, "Más información", null, RowAction.WARP_SIGNATURE_HELP,
+                    "La VPN instalada no es la versión firmada para MiVisor.")
+            WarpPhase.ERROR -> when (status.detail) {
+                WarpProtocol.DETAIL_DISCONNECT_TIMEOUT ->
+                    ServiceRow(t, "No se pudo desconectar", Indicator.ERROR, "Reintentar", null, RowAction.REFRESH, "La VPN no respondió a tiempo.")
+                "NO_RESPONSE" ->
+                    ServiceRow(t, "No se pudo comunicar con WARP", Indicator.ERROR, "Reintentar", null, RowAction.REFRESH, "WARP no respondió.")
+                else ->
+                    ServiceRow(t, "No se pudo conectar", Indicator.ERROR, "Reintentar", null, RowAction.WARP_CONNECT, "No se pudo conectar.")
+            }
         }
     }
+
+    /** Texto de "Cómo instalar" (sin enlaces externos ni descargas desde la app). */
+    const val ACE_INSTALL_HELP =
+        "Instala «Ace Stream Media» o «Ace Stream Engine» desde la tienda de aplicaciones de tu TV (o desde acestream.org " +
+            "en otro dispositivo). Después vuelve a MiVisor: el estado se actualizará solo."
+    const val WARP_INSTALL_HELP =
+        "Instala la versión de WARP preparada para MiVisor (la que está firmada con la misma clave que esta app). " +
+            "Después vuelve a MiVisor: el estado se actualizará solo."
+    const val WARP_SIGNATURE_HELP =
+        "La VPN instalada no permite que MiVisor la controle: no está firmada con la misma clave. " +
+            "Instala la versión de WARP para MiVisor. Por seguridad, MiVisor no rebaja este permiso."
 }

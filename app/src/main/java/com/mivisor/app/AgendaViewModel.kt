@@ -4,46 +4,33 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mivisor.app.data.AgendaRepository
-import com.mivisor.app.data.CatalogBuilder
 import com.mivisor.app.data.ChannelMatcher
-import com.mivisor.app.data.NotCachedException
-import com.mivisor.app.data.PayloadDecoder
-import com.mivisor.app.data.RawCache
-import com.mivisor.app.data.SourceStore
-import com.mivisor.app.data.StreamRepository
-import com.mivisor.app.data.StreamRepository.Mode
 import com.mivisor.app.data.TvChannelsRepository
-import com.mivisor.app.data.sharedGson
 import com.mivisor.app.model.Agenda
 import com.mivisor.app.model.AgendaChannel
 import com.mivisor.app.model.AgendaEvent
-import com.mivisor.app.model.AgendaFilters
-import com.mivisor.app.model.SubFilterOption
+import com.mivisor.app.model.CalendarChip
+import com.mivisor.app.model.CalendarFilters
+import com.mivisor.app.model.CalendarQuery
+import com.mivisor.app.model.CalendarRange
 import com.mivisor.app.model.Channel
-import com.mivisor.app.model.EventStatus
-import com.mivisor.app.model.SourceProfile
-import com.mivisor.app.network.CompositeDnsResolver
+import com.mivisor.app.model.Competition
+import com.mivisor.app.model.DayClock
+import com.mivisor.app.model.HomeFeed
+import com.mivisor.app.model.HomeFeedBuilder
+import com.mivisor.app.model.LiveFilters
 import com.mivisor.app.player.PlayerPreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Calendar
-
-enum class DayFilter(val label: String) {
-    TODAY("Hoy"), TOMORROW("Mañana"), LIVE("En vivo"), NEXT("Próximos")
-}
-
-enum class TimeSlot(val label: String, val fromHour: Int, val toHour: Int) {
-    ALL("Todo el día", 0, 24), MORNING("Mañana", 0, 14), AFTERNOON("Tarde", 14, 20), NIGHT("Noche", 20, 24)
-}
 
 data class AgendaUi(
     val loading: Boolean = true,
@@ -51,70 +38,69 @@ data class AgendaUi(
     val fetchedAt: Long = 0L,
     val offline: Boolean = false,
     val error: String? = null,
-    val day: DayFilter = DayFilter.TODAY,
-    val slot: TimeSlot = TimeSlot.ALL,
-    val sport: String? = null,
-    /**
-     * Segundo nivel elegido por deporte ("futbol" → "CHAMPIONS"). Se recuerda mientras viva la
-     * pantalla: al volver a Fútbol se recupera la competición elegida. Sin entrada = "Todos".
-     */
-    val subFilters: Map<String, String> = emptyMap(),
-    /** Chips del segundo nivel para el deporte activo ("Todos" + competiciones con eventos). */
-    val subOptions: List<SubFilterOption> = emptyList(),
-    /** Subfiltro aplicado ahora mismo (null = "Todos"). */
-    val subKey: String? = null,
-    val visible: List<AgendaEvent> = emptyList(),
-    /** Destacados de hoy: en directo primero y luego las competiciones más vistas. */
-    val featured: List<AgendaEvent> = emptyList(),
-    val liveCount: Int = 0,
-    /** Nombre de canal de la agenda → tus canales equivalentes. */
+    /** Hora con la que se calcularon los estados (se recalcula cada minuto). */
+    val now: Long = System.currentTimeMillis(),
+
+    // Inicio
+    val home: HomeFeed = HomeFeed.EMPTY,
+
+    // En directo
+    val liveSport: String? = null,
+    val liveSports: List<String> = LiveFilters.ALWAYS,
+    val live: List<AgendaEvent> = emptyList(),
+
+    // Calendario
+    val calendar: CalendarQuery = CalendarQuery(),
+    val calendarChips: List<CalendarChip> = emptyList(),
+    val calendarEvents: List<AgendaEvent> = emptyList(),
+
+    /** Nombre de canal de la agenda → tus fuentes equivalentes (de cualquier proveedor). */
     val links: Map<String, List<Channel>> = emptyMap(),
     val indexedChannels: Int = 0,
     /** Canales pedidos a TheSportsDB al abrir un partido (id del evento → canales). */
     val tvChannels: Map<String, List<AgendaChannel>> = emptyMap(),
-    /** Partidos cuyos canales se están pidiendo ahora mismo. */
     val tvLoading: Set<String> = emptySet(),
-    /** Partidos cuya consulta de canales falló (sin red, límite…): se reintenta al volver a abrirlos. */
     val tvFailed: Set<String> = emptySet()
 ) {
     /** Canales del partido: los de agenda.json o, si no trae, los pedidos al abrirlo. */
     fun channelsOf(event: AgendaEvent): List<AgendaChannel> =
         event.channels.ifEmpty { tvChannels[event.id].orEmpty() }
 
-    /** Opciones reales (enlaces distintos) entre todos los canales que emiten [event]. */
-    fun optionCount(event: AgendaEvent): Int =
-        channelsOf(event).flatMap { links[it.name].orEmpty() }.distinctBy { it.url }.size
+    /** Tus fuentes (enlaces distintos) para un partido, de todos sus canales. */
+    fun sourcesOf(event: AgendaEvent): List<Channel> =
+        channelsOf(event).flatMap { links[it.name].orEmpty() }.distinctBy { it.url }
+
+    fun optionCount(event: AgendaEvent): Int = sourcesOf(event).size
+
+    fun event(id: String?): AgendaEvent? = agenda?.events?.firstOrNull { it.id == id }
 }
 
+/**
+ * Agenda deportiva para Inicio, En directo, Calendario, competiciones y "Canales del encuentro".
+ * Los canales del usuario llegan de la biblioteca ([setChannels]); aquí no se descargan proveedores.
+ */
 class AgendaViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = AgendaRepository(File(application.cacheDir, "agenda"))
     private val prefs = PlayerPreferences(application)
-    private val sourceStore = SourceStore(application)
     private val tvRepository = TvChannelsRepository(File(application.cacheDir, "agenda"))
-    // Misma caché que el catálogo: el índice de canales se construye sin red si ya abriste las categorías.
-    private val streams = StreamRepository(
-        resolver = CompositeDnsResolver(),
-        decoder = PayloadDecoder(sharedGson),
-        cache = RawCache(File(application.cacheDir, "txt_cache")),
-        domain = BuildConfig.STREAM_DOMAIN
-    )
+    private val clock = DayClock()
 
     private val _ui = MutableStateFlow(AgendaUi())
     val ui: StateFlow<AgendaUi> = _ui.asStateFlow()
 
     private var loadJob: Job? = null
     private var matcher: ChannelMatcher = ChannelMatcher(emptyList())
-    private var lastSources: List<SourceProfile> = emptyList()
-    private var indexJob: Job? = null
+    private var lastChannels: List<Channel>? = null
 
     val agendaUrl: String get() = prefs.agendaUrl.ifBlank { BuildConfig.AGENDA_URL }
 
     init {
         load()
+        // Los estados (en directo, finalizado…) cambian con la hora: se recalculan cada minuto.
         viewModelScope.launch {
-            sourceStore.items.collectLatest { sources ->
-                lastSources = sources
-                rebuildIndex(sources)
+            while (true) {
+                delay(60_000)
+                recompute()
             }
         }
     }
@@ -125,9 +111,7 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
         loadJob = viewModelScope.launch {
             try {
                 val result = repository.load(agendaUrl, force)
-                _ui.update {
-                    it.copy(loading = false, agenda = result.agenda, fetchedAt = result.fetchedAt, offline = result.offline)
-                }
+                _ui.update { it.copy(loading = false, agenda = result.agenda, fetchedAt = result.fetchedAt, offline = result.offline) }
                 recompute()
             } catch (e: CancellationException) {
                 throw e
@@ -137,24 +121,36 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** Relee tus códigos (desde caché) por si alguno trae enlaces nuevos desde la última vez. */
-    fun refreshIndex() {
-        if (lastSources.isEmpty()) return
-        indexJob?.cancel()
-        indexJob = viewModelScope.launch { rebuildIndex(lastSources) }
+    /** Canales de todos tus proveedores (de la biblioteca): para ofrecer "Ver ahora" en cada partido. */
+    fun setChannels(channels: List<Channel>) {
+        if (channels === lastChannels) return
+        lastChannels = channels
+        viewModelScope.launch {
+            matcher = withContext(Dispatchers.Default) { ChannelMatcher(channels) }
+            _ui.update { it.copy(indexedChannels = channels.size) }
+            recompute()
+        }
     }
 
-    fun setDay(day: DayFilter) = update { it.copy(day = day) }
-    fun setSlot(slot: TimeSlot) = update { it.copy(slot = slot) }
-    /** Pulsar el deporte activo lo desactiva (vuelve a "todos"). */
-    fun toggleSport(sport: String) = update { it.copy(sport = if (it.sport == sport) null else sport) }
-    /** Competición (u otro subfiltro) del deporte activo; null = "Todos". Filtra en local, sin red. */
-    fun setSubFilter(key: String?) = update { state ->
-        val sport = state.sport ?: return@update state
-        state.copy(subFilters = if (key == null) state.subFilters - sport else state.subFilters + (sport to key))
+    fun setLiveSport(sport: String?) = update { it.copy(liveSport = if (it.liveSport == sport) null else sport) }
+
+    fun setCalendarRange(range: CalendarRange) = update { it.copy(calendar = it.calendar.copy(range = range)) }
+
+    fun setCalendarDay(offset: Int) = update {
+        it.copy(calendar = it.calendar.copy(range = CalendarRange.DATE, dayOffset = offset.coerceIn(0, CalendarFilters.DAYS_AHEAD - 1)))
     }
 
-    fun linksFor(channelName: String): List<Channel> = _ui.value.links[channelName].orEmpty()
+    fun setCalendarCompetition(key: String?) = update { it.copy(calendar = it.calendar.copy(competition = key)) }
+
+    /** "Ver calendario completo" desde una competición: la semana, filtrada por ella. */
+    fun openCalendarFor(competition: Competition?) = update {
+        val key = when {
+            competition == null -> null
+            competition.sport == "tenis" -> CalendarFilters.TENNIS_KEY
+            else -> competition.name
+        }
+        it.copy(calendar = CalendarQuery(range = if (competition == null) CalendarRange.TODAY else CalendarRange.WEEK, competition = key))
+    }
 
     /**
      * Al abrir un partido: si no trae canales, se piden a TheSportsDB UNA vez y se guardan.
@@ -184,15 +180,9 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    /** Otros eventos de hoy para la columna "Más partidos de hoy" del detalle. */
-    fun moreToday(excludeId: String, max: Int = 3): List<AgendaEvent> {
-        val agenda = _ui.value.agenda ?: return emptyList()
-        val now = System.currentTimeMillis()
-        val end = startOfDay(now, 1)
-        return agenda.events.asSequence()
-            .filter { it.id != excludeId && it.startMillis < end && it.status(now) != EventStatus.FINISHED }
-            .take(max)
-            .toList()
+    fun competitionSections(competition: Competition): List<Pair<String, List<AgendaEvent>>> {
+        val events = _ui.value.agenda?.events.orEmpty()
+        return CalendarFilters.competitionSections(competition, events, System.currentTimeMillis(), clock)
     }
 
     // ---------------------------------------------------------------------------------
@@ -205,110 +195,44 @@ class AgendaViewModel(application: Application) : AndroidViewModel(application) 
     private suspend fun recompute() {
         val state = _ui.value
         val agenda = state.agenda ?: return
+        val now = System.currentTimeMillis()
         val computed = withContext(Dispatchers.Default) {
-            val now = System.currentTimeMillis()
-            val today = startOfDay(now, 0)
-            val tomorrow = startOfDay(now, 1)
-            val dayAfter = startOfDay(now, 2)
-            val weekEnd = startOfDay(now, 8)
-            val subOptions = AgendaFilters.options(agenda.events, state.sport)
-            val subKey = AgendaFilters.effective(agenda.events, state.sport, state.subFilters)
-            val bySport = AgendaFilters.bySport(agenda.events, state.sport, subKey)
-            val byDay = when (state.day) {
-                DayFilter.TODAY -> bySport.filter { it.startMillis in today until tomorrow }
-                    .sortedBy { if (it.status(now) == EventStatus.FINISHED) 1 else 0 }
-                DayFilter.TOMORROW -> bySport.filter { it.startMillis in tomorrow until dayAfter }
-                DayFilter.NEXT -> bySport.filter { it.startMillis in dayAfter until weekEnd }
-                DayFilter.LIVE -> bySport.filter { it.status(now) == EventStatus.LIVE }
+            val links = buildLinks(agenda, state.tvChannels)
+            val options: (AgendaEvent) -> Int = { e ->
+                e.channels.ifEmpty { state.tvChannels[e.id].orEmpty() }.flatMap { links[it.name].orEmpty() }.distinctBy { it.url }.size
             }
-            val visible = if (state.slot == TimeSlot.ALL) byDay else byDay.filter {
-                hourOf(it.startMillis) in state.slot.fromHour until state.slot.toHour
-            }
-            val todayEvents = agenda.events.filter { it.startMillis in today until tomorrow && it.status(now) != EventStatus.FINISHED }
-            val featured = todayEvents
-                .sortedWith(compareBy<AgendaEvent>({ if (it.status(now) == EventStatus.LIVE) 0 else 1 }, { -priority(it) }, { it.startMillis }))
-                .take(3)
+            val events = agenda.events
+            val liveAll = LiveFilters.apply(events, now, null)
             Computed(
-                visible, featured, agenda.events.count { it.status(now) == EventStatus.LIVE }, buildLinks(agenda, state.tvChannels),
-                subOptions, subKey
+                links = links,
+                home = HomeFeedBuilder.build(events, now, clock, options),
+                live = LiveFilters.apply(events, now, state.liveSport),
+                liveSports = LiveFilters.sports(liveAll),
+                chips = CalendarFilters.chips(events),
+                calendar = CalendarFilters.apply(events, state.calendar, now, clock)
             )
         }
         _ui.update {
             it.copy(
-                visible = computed.visible, featured = computed.featured, liveCount = computed.live, links = computed.links,
-                subOptions = computed.subOptions, subKey = computed.subKey
+                now = now, links = computed.links, home = computed.home, live = computed.live, liveSports = computed.liveSports,
+                calendarChips = computed.chips, calendarEvents = computed.calendar
             )
         }
     }
 
     private class Computed(
-        val visible: List<AgendaEvent>,
-        val featured: List<AgendaEvent>,
-        val live: Int,
         val links: Map<String, List<Channel>>,
-        val subOptions: List<SubFilterOption>,
-        val subKey: String?
+        val home: HomeFeed,
+        val live: List<AgendaEvent>,
+        val liveSports: List<String>,
+        val chips: List<CalendarChip>,
+        val calendar: List<AgendaEvent>
     )
-
-    /** Más puntos = más interés para "Destacados". Ajustable sin tocar la UI. */
-    private fun priority(event: AgendaEvent): Int {
-        val text = "${event.competition.orEmpty()} ${event.title}".lowercase()
-        return PRIORITY.entries.firstOrNull { (key, _) -> key in text }?.value ?: 0
-    }
 
     private fun buildLinks(agenda: Agenda, tvChannels: Map<String, List<AgendaChannel>>): Map<String, List<Channel>> {
         if (matcher.isEmpty) return emptyMap()
         val names = (agenda.events.asSequence().flatMap { it.channels.asSequence() } +
             tvChannels.values.asSequence().flatten()).map { it.name }.toSet()
         return names.associateWith { matcher.match(it) }.filterValues { it.isNotEmpty() }
-    }
-
-    /** Reúne los canales de todas tus categorías (de caché; si falta, la descarga una vez). */
-    private suspend fun rebuildIndex(sources: List<SourceProfile>) {
-        val channels = ArrayList<Channel>()
-        for (source in sources) {
-            val result = try {
-                streams.load(source.code, Mode.CACHE_ONLY)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: NotCachedException) {
-                runCatching { streams.load(source.code, Mode.PREFER_CACHE) }.getOrNull()
-            } catch (e: Exception) {
-                null
-            } ?: continue
-            val catalog = withContext(Dispatchers.Default) { CatalogBuilder.build(result.items) }
-            catalog.sections.forEach { section ->
-                section.channels.forEach { ch ->
-                    channels += Channel(
-                        id = "${source.id}:${ch.id}", name = ch.name, url = ch.url, group = ch.group,
-                        kind = ch.kind, initials = ch.initials, tint = ch.tint, source = source.name
-                    )
-                }
-            }
-        }
-        matcher = withContext(Dispatchers.Default) { ChannelMatcher(channels) }
-        _ui.update { it.copy(indexedChannels = channels.size) }
-        recompute()
-    }
-
-    private fun hourOf(millis: Long): Int = Calendar.getInstance().run {
-        timeInMillis = millis
-        get(Calendar.HOUR_OF_DAY)
-    }
-
-    private fun startOfDay(now: Long, plusDays: Int): Long = Calendar.getInstance().run {
-        timeInMillis = now
-        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-        add(Calendar.DAY_OF_YEAR, plusDays)
-        timeInMillis
-    }
-
-    private companion object {
-        val PRIORITY = linkedMapOf(
-            "champions" to 100, "liga de campeones" to 100, "real madrid" to 95, "barcelona" to 95,
-            "la liga" to 90, "laliga" to 90, "copa del rey" to 85, "premier" to 80, "nba" to 75,
-            "fórmula 1" to 75, "formula 1" to 75, "motogp" to 70, "ufc" to 68, "atp" to 65, "wta" to 60,
-            "europa league" to 60, "serie a" to 55, "bundesliga" to 55, "ligue 1" to 50, "acb" to 50, "endesa" to 50
-        )
     }
 }

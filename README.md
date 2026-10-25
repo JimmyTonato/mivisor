@@ -1,4 +1,4 @@
-# Mi Visor TV · v4
+# Mi Visor TV · v11
 
 Visor de canales para Android TV (también móvil y tablet), compatible con los códigos de MyLinksPaste.
 
@@ -280,6 +280,34 @@ Se usa el **mismo protocolo** que `MiVisor-WARP-TestClient-1.2` (`WarpControlCon
 - **Declaración del permiso:** solo las releases con clave propia declaran el `<permission>` (`app/src/warpSigned`), igual que el cliente de prueba, para que el orden de instalación no importe. Con la clave de desarrollo no se declara, para evitar el conflicto de permiso duplicado.
 - **Cambiar de clave obliga a desinstalar:** Android no permite actualizar una app firmada con otra clave, así que habrá que desinstalar la versión firmada con la clave de desarrollo. Se pierden las categorías e historial guardados.
 - **Si la firma no coincide:** la fila muestra "Sin permiso de control (firma)" y queda registrado en el log (`MiVisor/Services`). Nunca se rebaja el permiso para "hacerlo funcionar".
+
+## Interfaz (v11, según el handoff de UX)
+
+Navegación lateral: **Inicio · En directo · Canales · Historial · Ajustes**. Abajo, **Servicios de reproducción**
+(Ace Stream y VPN/WARP) con su estado real: discretos cuando todo va bien, con el botón en la propia fila cuando hay que actuar
+(Iniciar, Conectar, Autorizar, Configurar, Reintentar, Cómo instalar). OK en una fila correcta abre el panel rápido.
+
+- **Inicio** (sin scroll en una TV 16:9): Hero con el directo principal (o el próximo relevante) y *Ver ahora* / *N fuentes*;
+  *Tus competiciones* (LaLiga, Champions, Premier, F1, MotoGP siempre; el resto si tiene eventos) con "3 hoy · 1 en directo",
+  "Fin de semana", "Próxima carrera…"; *En directo ahora*; *Empieza pronto* (próximas horas) y *Ver calendario completo*.
+  El hueco de imagen del Hero usa escudos/retratos sobre un fondo de estadio (preparado para una imagen real).
+- **Página de competición**: Ligas → En directo · Hoy · Próximos; Motor → Ahora · Este fin de semana · Próximos grandes premios.
+- **En directo**: solo lo que se emite ahora, filtros Todos/Fútbol/Tenis/F1/MotoGP (+ otros si hay).
+- **Calendario** (antes Agenda): Hoy · Mañana · Esta semana · Elegir fecha, chips de competición, listado compacto y detalle del
+  evento enfocado. Se abre desde Inicio, competiciones y En directo.
+- **Canales del encuentro**: filas grandes; toda la fila es el control y OK reproduce.
+- **Canales por proveedor** (antes "categorías"): Todos + cada proveedor. Los canales repetidos entre proveedores se agrupan
+  ("DAZN 1 · 3 fuentes", calidad deducida del nombre: 4K / Full HD / HD / SD). Con una fuente, OK reproduce; con varias, se elige.
+- **Añadir proveedor**: Código + Nombre (opcional) y, en TV, el QR para escribir desde el móvil siempre visible.
+  Lo recibido va al **campo activo** ("Campo activo: Código / Nombre del proveedor") y no se guarda solo.
+- **Ver ahora / OK = quiero ver esto**: una fuente → se reproduce; varias → selector. Si el enlace es de Ace Stream y el motor
+  está parado, o el proveedor está marcado "Usar VPN" y la VPN está desconectada, MiVisor lo prepara todo a la vez
+  ("Preparando reproducción…") y solo pregunta si hace falta una persona (autorizar la VPN, un fallo). Al resolverlo, continúa
+  con el mismo contenido. VPN por proveedor: Canales → Gestionar → "VPN: sí/no".
+- **Historial**: reproducciones (evento, canal, competición, proveedor y cuándo). OK lo vuelve a abrir.
+- **Ajustes**: General · Reproductor · Interfaz · Servicios (Ace/VPN, inicio automático, *vista previa de estados* para revisar
+  todos los estados sin tocar nada real, y las fuentes de datos de la agenda) · Canales · Datos · Sistema (registro de errores).
+- Sin `focusRestorer` en listas anidadas (sospechoso del cierre al pulsar ▶).
 
 ## Escribir con el móvil (QR)
 

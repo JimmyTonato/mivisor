@@ -4,41 +4,112 @@ import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mivisor.app.model.PlayRequest
+import com.mivisor.app.player.PlayerPreferences
+import com.mivisor.app.services.AcePhase
 import com.mivisor.app.services.AceStatus
 import com.mivisor.app.services.AceStreamEngineController
+import com.mivisor.app.services.PlaybackNeeds
+import com.mivisor.app.services.PlaybackPlanner
+import com.mivisor.app.services.PrepDecision
+import com.mivisor.app.services.PrepProblem
 import com.mivisor.app.services.QuickServiceText
 import com.mivisor.app.services.RowAction
 import com.mivisor.app.services.ServiceRow
+import com.mivisor.app.services.StepState
 import com.mivisor.app.services.WarpController
+import com.mivisor.app.services.WarpPhase
 import com.mivisor.app.services.WarpStatus
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-data class QuickServicesUi(val ace: ServiceRow, val warp: ServiceRow, val aceStatus: AceStatus, val warpStatus: WarpStatus)
+data class QuickServicesUi(
+    val ace: ServiceRow,
+    val warp: ServiceRow,
+    val aceStatus: AceStatus,
+    val warpStatus: WarpStatus,
+    /** Estados simulados para revisar la interfaz (Ajustes → Servicios → Vista previa). */
+    val preview: Boolean = false
+)
+
+/** Ayuda que se muestra en un diálogo ("Cómo instalar"…). */
+enum class HelpTopic { ACE_INSTALL, WARP_INSTALL, WARP_SIGNATURE }
+
+/** "Preparando reproducción…": un solo panel para Ace y VPN, y la pregunta solo si hace falta una persona. */
+data class PrepUi(
+    val request: PlayRequest,
+    val ace: StepState?,
+    val vpn: StepState?,
+    val problem: PrepProblem? = null,
+    val awaitingAuth: Boolean = false
+)
 
 /**
- * Servicios rápidos de la barra lateral. La UI solo llama a [onOk]; toda la comunicación con
- * Ace Stream y WARP está en los controladores (nada de broadcasts desde composables).
+ * Servicios de reproducción (Ace Stream y VPN/WARP): estado real para la barra lateral, acciones,
+ * y la preparación automática antes de reproducir. La UI no habla con Ace ni con WARP directamente.
  */
 class QuickServicesViewModel(application: Application) : AndroidViewModel(application) {
     val ace = AceStreamEngineController(application, viewModelScope)
     val warp = WarpController(application, viewModelScope)
+    private val prefs = PlayerPreferences(application)
 
-    val ui: StateFlow<QuickServicesUi> = combine(ace.state, warp.state) { a, w ->
-        QuickServicesUi(QuickServiceText.ace(a), QuickServiceText.warp(w), a, w)
+    private val previewAce = MutableStateFlow<AceStatus?>(null)
+    private val previewWarp = MutableStateFlow<WarpStatus?>(null)
+
+    val ui: StateFlow<QuickServicesUi> = combine(ace.state, warp.state, previewAce, previewWarp) { a, w, pa, pw ->
+        val shownAce = pa ?: a
+        val shownWarp = pw ?: w
+        QuickServicesUi(QuickServiceText.ace(shownAce), QuickServiceText.warp(shownWarp), shownAce, shownWarp, preview = pa != null || pw != null)
     }.stateIn(
         viewModelScope, SharingStarted.Eagerly,
         QuickServicesUi(QuickServiceText.ace(ace.state.value), QuickServiceText.warp(warp.state.value), ace.state.value, warp.state.value)
     )
 
+    private val _help = MutableStateFlow<HelpTopic?>(null)
+    val help: StateFlow<HelpTopic?> = _help.asStateFlow()
+
+    private val _panel = MutableStateFlow(false)
+    /** Panel rápido de servicios (al pulsar OK en una fila que está bien). */
+    val panel: StateFlow<Boolean> = _panel.asStateFlow()
+
+    private val _prep = MutableStateFlow<PrepUi?>(null)
+    val prep: StateFlow<PrepUi?> = _prep.asStateFlow()
+
+    private val _launch = MutableStateFlow<PlayRequest?>(null)
+    /** Contenido listo para abrir: la UI lo lanza y llama a [consumeLaunch]. */
+    val launch: StateFlow<PlayRequest?> = _launch.asStateFlow()
+
+    private var planner: PlaybackPlanner? = null
+    private var aceAutoDone = false
+    private var vpnAutoDone = false
+
+    init {
+        // Cualquier cambio real de Ace o WARP hace avanzar la preparación en curso.
+        viewModelScope.launch {
+            combine(ace.state, warp.state) { a, w -> a to w }.collect { (a, w) -> advance(a, w) }
+        }
+    }
+
     /** onResume (abrir MiVisor, volver de la autorización VPN o de WARP): estado real, sin pulsar nada. */
     fun onForeground() {
         warp.startListening()
-        viewModelScope.launch { warp.refresh() }
-        viewModelScope.launch { ace.refresh() }
+        planner?.onForeground()
+        viewModelScope.launch {
+            val w = warp.refresh()
+            // "Conectar al abrir MiVisor": solo la primera vez, nunca al volver de otra app.
+            if (!vpnAutoDone && prefs.vpnAutoConnect && w.phase == WarpPhase.DISCONNECTED) warp.connect()
+            vpnAutoDone = true
+        }
+        viewModelScope.launch {
+            val a = ace.refresh()
+            if (!aceAutoDone && prefs.aceAutoStart && a.phase == AcePhase.STOPPED) ace.start()
+            aceAutoDone = true
+        }
     }
 
     /** onStop: sin receptores ni enlaces innecesarios. Esto NO apaga el motor ni la VPN. */
@@ -51,11 +122,95 @@ class QuickServicesViewModel(application: Application) : AndroidViewModel(applic
         when (action) {
             RowAction.NONE -> Unit
             RowAction.REFRESH -> onForeground()
+            RowAction.PANEL -> _panel.value = true
             RowAction.ACE_START -> ace.start()
+            RowAction.ACE_INSTALL_HELP -> _help.value = HelpTopic.ACE_INSTALL
             RowAction.WARP_CONNECT -> warp.connect()
             RowAction.WARP_DISCONNECT -> warp.disconnect()
-            RowAction.WARP_AUTHORIZE -> if (!warp.requestPermission()) toast("No se pudo abrir la autorización de WARP")
+            RowAction.WARP_AUTHORIZE -> if (!warp.requestPermission()) toast("No se pudo abrir la autorización de la VPN")
             RowAction.WARP_OPEN_APP -> if (!warp.openApp()) toast("No se pudo abrir WARP")
+            RowAction.WARP_INSTALL_HELP -> _help.value = HelpTopic.WARP_INSTALL
+            RowAction.WARP_SIGNATURE_HELP -> _help.value = HelpTopic.WARP_SIGNATURE
+        }
+    }
+
+    fun openPanel() { _panel.value = true }
+    fun closePanel() { _panel.value = false }
+    fun closeHelp() { _help.value = null }
+
+    // ------------------------------------------------------------------ vista previa (simulación)
+
+    fun previewAce(phase: AcePhase?) {
+        previewAce.value = phase?.let { AceStatus(it, 6878, if (it == AcePhase.READY) "3.1.74" else null) }
+    }
+
+    fun previewWarp(phase: WarpPhase?) {
+        previewWarp.value = phase?.let { WarpStatus(it, if (it == WarpPhase.ERROR) "CONNECT_TIMEOUT" else null) }
+    }
+
+    // ------------------------------------------------------------------ preparar reproducción
+
+    /** OK sobre un contenido. Si no necesita nada, se abre ya; si no, se prepara (y continúa solo). */
+    fun play(request: PlayRequest, needs: PlaybackNeeds) {
+        if (!needs.any) {
+            _launch.value = request
+            return
+        }
+        val p = PlaybackPlanner(needs)
+        planner = p
+        _prep.value = PrepUi(request, if (needs.ace) StepState.WORKING else null, if (needs.vpn) StepState.WORKING else null)
+        advance(ace.state.value, warp.state.value)
+    }
+
+    fun cancelPrep() {
+        planner = null
+        _prep.value = null
+    }
+
+    fun authorizeVpn() {
+        val p = planner ?: return
+        p.onAuthorizeRequested()
+        _prep.value = _prep.value?.copy(problem = null, awaitingAuth = true)
+        if (!warp.requestPermission()) {
+            toast("No se pudo abrir la autorización de la VPN")
+            p.onForeground()
+        }
+    }
+
+    fun retryPrep() {
+        val p = planner ?: return
+        val problem = _prep.value?.problem ?: return
+        p.retry(problem)
+        if (problem == PrepProblem.VPN_SETUP && !warp.openApp()) toast("No se pudo abrir WARP")
+        _prep.value = _prep.value?.copy(problem = null)
+        advance(ace.state.value, warp.state.value)
+    }
+
+    /** "Abrir igualmente": el usuario decide reproducir sin el requisito. */
+    fun openAnyway() {
+        val request = _prep.value?.request ?: return
+        cancelPrep()
+        _launch.value = request
+    }
+
+    fun consumeLaunch() { _launch.value = null }
+
+    private fun advance(a: AceStatus, w: WarpStatus) {
+        val p = planner ?: return
+        val current = _prep.value ?: return
+        when (val d = p.next(a, w)) {
+            PrepDecision.Launch -> {
+                planner = null
+                _prep.value = null
+                _launch.value = current.request                  // continúa con el mismo contenido
+            }
+            is PrepDecision.Work -> {
+                if (d.startAce) ace.start()
+                if (d.connectVpn) warp.connect()
+                _prep.value = current.copy(ace = d.ace, vpn = d.vpn, problem = p.pendingAsk,
+                    awaitingAuth = current.awaitingAuth && w.phase == WarpPhase.PERMISSION_REQUIRED)
+            }
+            is PrepDecision.Ask -> _prep.value = current.copy(problem = d.problem, awaitingAuth = false)
         }
     }
 

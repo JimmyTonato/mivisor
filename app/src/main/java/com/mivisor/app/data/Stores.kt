@@ -110,3 +110,37 @@ class SourceStore(context: Context) {
         ?.sortedBy { it.order }
         .orEmpty()
 }
+
+private val Context.playbackDataStore by preferencesDataStore(name = "playback_history")
+
+/** Historial de reproducciones (evento, canal, proveedor y cuándo). Solo en el dispositivo. */
+class PlaybackHistoryStore(context: Context) {
+    private val store = context.applicationContext.playbackDataStore
+
+    val items: Flow<List<com.mivisor.app.model.PlaybackEntry>> = store.data
+        .map { prefs -> read(prefs) }
+        .distinctUntilChanged()
+
+    suspend fun add(entry: com.mivisor.app.model.PlaybackEntry) {
+        store.edit { prefs ->
+            prefs[ITEMS] = sharedGson.toJson(com.mivisor.app.model.PlaybackEntry.push(read(prefs), entry).toTypedArray())
+        }
+    }
+
+    suspend fun remove(entry: com.mivisor.app.model.PlaybackEntry) {
+        store.edit { prefs ->
+            prefs[ITEMS] = sharedGson.toJson(read(prefs).filterNot { it.url == entry.url && it.eventId == entry.eventId }.toTypedArray())
+        }
+    }
+
+    suspend fun clear() {
+        store.edit { it.remove(ITEMS) }
+    }
+
+    private fun read(prefs: Preferences): List<com.mivisor.app.model.PlaybackEntry> = prefs[ITEMS]
+        ?.let { json -> runCatching { sharedGson.fromJson(json, Array<com.mivisor.app.model.PlaybackEntry?>::class.java) }.getOrNull() }
+        ?.filterNotNull()
+        ?.filter { !it.url.isNullOrBlank() }
+        ?.sortedByDescending { it.at }
+        .orEmpty()
+}

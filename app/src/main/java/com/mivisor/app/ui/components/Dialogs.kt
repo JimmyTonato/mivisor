@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -183,6 +184,14 @@ private fun shortLabel(scope: RememberScope) = when (scope) {
 enum class SourceDialogMode { OPEN_CODE, ADD, EDIT }
 enum class SourceAction { OPEN_ONLY, SAVE_AND_OPEN, SAVE }
 
+/** Campo del formulario que recibe lo escrito desde el móvil. */
+enum class ActiveField(val label: String) { CODE("Código"), NAME("Nombre del proveedor") }
+
+/**
+ * "Añadir proveedor" / "Abrir código del proveedor" / "Editar proveedor".
+ * Código + nombre (opcional) a la izquierda y, en TV, el QR para escribir desde el móvil a la derecha.
+ * Lo que llega del móvil va al CAMPO ACTIVO (el último seleccionado) y sustituye su contenido; nunca se guarda solo.
+ */
 @Composable
 fun SourceDialog(
     mode: SourceDialogMode,
@@ -191,39 +200,32 @@ fun SourceDialog(
     onDismiss: () -> Unit,
     onResult: (name: String, code: String, action: SourceAction) -> Unit
 ) {
+    val layout = com.mivisor.app.ui.neon.LocalAppLayout.current
     val remote: RemoteInputViewModel = viewModel()
     val remoteState by remote.state.collectAsState()
     var name by remember { mutableStateOf(initialName) }
     var code by remember { mutableStateOf(initialCode) }
     var showError by remember { mutableStateOf(false) }
-    var receivedNotice by remember { mutableStateOf(false) }
-    var focusCodeTick by remember { mutableIntStateOf(0) }
+    var received by remember { mutableStateOf<ActiveField?>(null) }
+    var active by remember { mutableStateOf(ActiveField.CODE) }
     val valid = Codes.normalizeOrNull(code) != null
     val codeFocus = remember { FocusRequester() }
     val nameFocus = remember { FocusRequester() }
-    val panelFocus = remember { FocusRequester() }
-    val showingQr = remoteState !is RemoteState.Idle && remoteState !is RemoteState.Received
 
-    // Salir del formulario (guardar, cancelar, Atrás, cambiar de pantalla) invalida la sesión y apaga el servidor.
+    // Salir del formulario (guardar, cancelar, Atrás) invalida la sesión y apaga el servidor.
     DisposableEffect(Unit) { onDispose { remote.cancel() } }
+    // En TV el QR se muestra directamente; en móvil, bajo petición (no tiene sentido escanearse a sí mismo).
+    LaunchedEffect(Unit) { if (!layout.compact) remote.startInput() }
 
-    // Texto recibido: sustituye el contenido del campo. NO se guarda: el usuario decide.
+    // Texto recibido: sustituye el campo activo. NO se guarda: el usuario decide. Se prepara otro QR por si hace falta.
     LaunchedEffect(remoteState) {
         val s = remoteState
         if (s is RemoteState.Received) {
-            code = RemoteFill.apply(code, s.text)
-            showError = false
-            receivedNotice = true
+            val text = RemoteFill.apply(if (active == ActiveField.CODE) code else name, s.text)
+            if (active == ActiveField.CODE) { code = text; showError = false } else name = text
+            received = active
             remote.consume()
-            focusCodeTick++
-        }
-    }
-    LaunchedEffect(focusCodeTick) {
-        if (focusCodeTick > 0) {
-            repeat(5) {
-                withFrameNanos { }
-                if (runCatching { codeFocus.requestFocus() }.isSuccess) return@LaunchedEffect
-            }
+            if (!layout.compact) remote.startInput()
         }
     }
 
@@ -236,65 +238,67 @@ fun SourceDialog(
         onResult(name, code, action)
     }
 
-    fun closeQr() {
-        remote.cancel()
-        focusCodeTick++
-    }
-
     val title = when (mode) {
-        SourceDialogMode.OPEN_CODE -> "Abrir un código"
-        SourceDialogMode.ADD -> "Nueva categoría"
-        SourceDialogMode.EDIT -> "Editar categoría"
+        SourceDialogMode.OPEN_CODE -> "Abrir código del proveedor"
+        SourceDialogMode.ADD -> "Añadir proveedor"
+        SourceDialogMode.EDIT -> "Editar proveedor"
     }
-    val subtitle = when {
-        showingQr -> "Escribir desde el móvil"
-        mode == SourceDialogMode.OPEN_CODE -> "Escribe el código. Puedes guardarlo como categoría para tenerlo en el menú."
-        else -> "Las categorías aparecen en el menú lateral en el orden que elijas."
+    val subtitle = when (mode) {
+        SourceDialogMode.EDIT -> "Cambia el nombre o el código de este proveedor."
+        else -> "Pega el código o envíalo desde el móvil para añadir los canales de ese proveedor."
     }
     val codeError = if (showError && !valid) "Solo letras, números, puntos y guiones" else null
 
-    TvDialog(
-        title = title,
-        subtitle = subtitle,
-        // Con el QR en pantalla, Atrás solo cierra el QR (y anula la sesión); sin él, cierra el formulario.
-        onDismiss = { if (showingQr) closeQr() else onDismiss() },
-        width = if (showingQr) 640.dp else 560.dp,
-        initialFocus = if (mode == SourceDialogMode.OPEN_CODE) codeFocus else nameFocus
-    ) {
-        if (showingQr) {
-            RemotePanel(remoteState, onCancel = { closeQr() }, onRetry = { remote.startInput() }, firstFocus = panelFocus)
-        } else {
-            val codeField: @Composable () -> Unit = {
+    TvDialog(title = title, subtitle = subtitle, onDismiss = onDismiss, width = if (layout.compact) 560.dp else 760.dp, initialFocus = codeFocus) {
+        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 TvTextField(
-                    code, { code = it; showError = false; receivedNotice = false }, "Código",
-                    placeholder = "p. ej. deportes", error = codeError, focusRequester = codeFocus
+                    code, { code = it; showError = false; received = null }, "Código",
+                    modifier = Modifier.onFocusChanged { if (it.hasFocus) active = ActiveField.CODE },
+                    placeholder = "P. ej. deportes", error = codeError, focusRequester = codeFocus
                 )
-                if (receivedNotice) Txt("✓ Texto recibido desde el móvil", Type.Caption, color = Palette.Cyan)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TvButton("Escribir con mando", { focusCodeTick++ }, icon = R.drawable.ic_edit, style = ButtonStyle.GHOST)
-                    TvButton("Usar móvil / QR", { receivedNotice = false; remote.startInput() }, icon = R.drawable.ic_share, style = ButtonStyle.GHOST)
-                }
-            }
-            if (mode == SourceDialogMode.OPEN_CODE) {
-                codeField()
-                TvTextField(name, { name = it }, "Nombre (opcional, para guardarlo)", placeholder = "p. ej. Deportes", focusRequester = nameFocus)
-            } else {
-                TvTextField(name, { name = it }, "Nombre", placeholder = "p. ej. Deportes", focusRequester = nameFocus)
-                codeField()
-            }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                when (mode) {
-                    SourceDialogMode.OPEN_CODE -> {
-                        TvButton("Abrir", { submit(SourceAction.OPEN_ONLY) }, icon = R.drawable.ic_play, style = ButtonStyle.PRIMARY)
-                        TvButton("Guardar y abrir", { submit(SourceAction.SAVE_AND_OPEN) }, icon = R.drawable.ic_add)
+                TvTextField(
+                    name, { name = it; received = null },
+                    if (mode == SourceDialogMode.EDIT) "Nombre del proveedor" else "Nombre del proveedor (opcional)",
+                    modifier = Modifier.onFocusChanged { if (it.hasFocus) active = ActiveField.NAME },
+                    placeholder = "P. ej. DAZN España", focusRequester = nameFocus
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.background(Palette.Surface, RoundedCornerShape(50)).border(1.dp, Palette.Cyan.copy(alpha = 0.6f), RoundedCornerShape(50))
+                            .padding(horizontal = 12.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(R.drawable.ic_edit, Palette.Cyan, size = 14.dp)
+                        Box(Modifier.width(6.dp))
+                        Txt("Campo activo: ${active.label}", Type.Caption, color = Palette.Cyan)
                     }
-                    SourceDialogMode.ADD ->
-                        TvButton("Guardar y abrir", { submit(SourceAction.SAVE_AND_OPEN) }, icon = R.drawable.ic_add, style = ButtonStyle.PRIMARY)
-                    SourceDialogMode.EDIT ->
-                        TvButton("Guardar", { submit(SourceAction.SAVE) }, style = ButtonStyle.PRIMARY)
                 }
-                TvButton("Cancelar", { remote.cancel(); onDismiss() }, style = ButtonStyle.GHOST)
+                received?.let { Txt("✓ Texto recibido desde el móvil (${it.label.lowercase()})", Type.Caption, color = Palette.Cyan) }
             }
+            if (!layout.compact) {
+                MobileQrPanel(
+                    remoteState, { remote.startInput() },
+                    Modifier.width(220.dp).background(Palette.Surface, RoundedCornerShape(16.dp)).border(1.dp, Palette.Outline, RoundedCornerShape(16.dp)).padding(12.dp)
+                )
+            }
+        }
+        if (layout.compact) MobileQrPanel(remoteState, { remote.startInput() }, Modifier.fillMaxWidth())
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(R.drawable.ic_info, Palette.TextFaint, size = 16.dp)
+            Box(Modifier.width(8.dp))
+            Txt("El texto enviado desde el móvil se insertará en el campo seleccionado. Nada se guarda hasta que pulses un botón.", Type.Caption, maxLines = 2)
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            when (mode) {
+                SourceDialogMode.OPEN_CODE, SourceDialogMode.ADD -> {
+                    TvButton("Abrir", { submit(SourceAction.OPEN_ONLY) }, icon = R.drawable.ic_play, style = ButtonStyle.PRIMARY)
+                    TvButton("Guardar y abrir", { submit(SourceAction.SAVE_AND_OPEN) }, icon = R.drawable.ic_add)
+                }
+                SourceDialogMode.EDIT ->
+                    TvButton("Guardar", { submit(SourceAction.SAVE) }, style = ButtonStyle.PRIMARY)
+            }
+            TvButton("Cancelar", { remote.cancel(); onDismiss() }, style = ButtonStyle.GHOST)
         }
     }
 }

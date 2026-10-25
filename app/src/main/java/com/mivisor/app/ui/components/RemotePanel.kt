@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -121,4 +122,58 @@ private fun Countdown(expiresAt: Long) {
     }
     val s = ((expiresAt - now) / 1000).coerceAtLeast(0)
     Txt("Caduca en %d:%02d".format(s / 60, s % 60), Type.Caption, color = Palette.TextFaint, modifier = Modifier.padding(start = 2.dp))
+}
+
+/**
+ * QR integrado en el formulario (columna derecha de "Añadir proveedor"): siempre visible en TV,
+ * sin quitar los campos. Caducado o error: mensaje y "Generar nuevo QR".
+ */
+@Composable
+fun MobileQrPanel(state: RemoteState, onStart: () -> Unit, modifier: Modifier = Modifier, qrSize: Dp = 150.dp) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(R.drawable.ic_phone, Palette.Cyan, size = 20.dp)
+            Box(Modifier.width(8.dp))
+            Txt("Escanea para escribir desde el móvil", Type.Label, maxLines = 2)
+        }
+        when (state) {
+            is RemoteState.Waiting -> {
+                QrImage(state.qr, qrSize)
+                Step(1, "Escanea")
+                Step(2, "Pega el código en el móvil")
+                Step(3, "Enviar a la TV")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spinner(12.dp, Palette.Cyan)
+                    Box(Modifier.width(6.dp))
+                    Countdown(state.expiresAt)
+                }
+            }
+            is RemoteState.Expired -> {
+                Txt("La sesión ha caducado.", Type.Body)
+                TvButton("Generar nuevo QR", onStart, icon = R.drawable.ic_refresh, style = ButtonStyle.NORMAL)
+            }
+            is RemoteState.Failed -> {
+                Txt(
+                    if (state.reason == RemoteState.Reason.NO_LAN) "No se ha podido iniciar la conexión con el móvil."
+                    else "No se pudo iniciar el servicio de escritura remota.",
+                    Type.Caption, maxLines = 3
+                )
+                Txt("Asegúrate de que ambos dispositivos están en la misma red y que la red permite comunicación entre dispositivos.",
+                    Type.Caption, color = Palette.TextFaint, maxLines = 4)
+                TvButton("Generar nuevo QR", onStart, icon = R.drawable.ic_refresh, style = ButtonStyle.NORMAL)
+            }
+            else -> TvButton("Usar móvil / QR", onStart, icon = R.drawable.ic_phone, style = ButtonStyle.NORMAL)
+        }
+    }
+}
+
+@Composable
+private fun Step(n: Int, text: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(20.dp).background(Palette.SurfaceHi, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+            Txt(n.toString(), Type.Badge, color = Palette.Text)
+        }
+        Box(Modifier.width(8.dp))
+        Txt(text, Type.Caption)
+    }
 }

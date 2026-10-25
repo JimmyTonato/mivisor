@@ -24,9 +24,14 @@ class Channel(
     val initials: String,
     /** Índice de color precalculado para el monograma (evita trabajo en cada recomposición). */
     val tint: Int,
-    /** Categoría (código) de la que viene; la agenda lo muestra en cada opción. */
-    val source: String? = null
-)
+    /** Proveedor (nombre) del que viene; la agenda y "Canales" lo muestran en cada fuente. */
+    val source: String? = null,
+    /** Id del proveedor (código normalizado): para saber si ese proveedor necesita VPN. */
+    val providerId: String? = null
+) {
+    /** Copia marcada con su proveedor; el id pasa a ser único entre proveedores ("proveedor/s1:0"). */
+    fun withProvider(id: String, name: String) = Channel("$id/${this.id}", this.name, url, group, kind, initials, tint, name, id)
+}
 
 class Section(
     val id: String,
