@@ -202,7 +202,8 @@ fun ProbeDialog(probe: com.mivisor.app.ProbeUi, onPlay: () -> Unit, onRetry: () 
     val result = probe.result
     val color = when (result?.verdict) {
         com.mivisor.app.services.ProbeVerdict.STREAMING -> Ui.Green
-        com.mivisor.app.services.ProbeVerdict.PREBUFFERING_ONLY, com.mivisor.app.services.ProbeVerdict.NO_DATA -> Ui.Amber
+        com.mivisor.app.services.ProbeVerdict.PREBUFFERING_ONLY, com.mivisor.app.services.ProbeVerdict.NO_DATA,
+        com.mivisor.app.services.ProbeVerdict.PREMIUM_REQUIRED -> Ui.Amber
         null -> Neon.Cyan
         else -> Neon.Red
     }
@@ -217,12 +218,13 @@ fun ProbeDialog(probe: com.mivisor.app.ProbeUi, onPlay: () -> Unit, onRetry: () 
                     com.mivisor.app.services.ProbeVerdict.NO_DATA -> "El motor está abierto, pero no llegan datos"
                     com.mivisor.app.services.ProbeVerdict.ENGINE_ERROR -> "El motor devolvió un error"
                     com.mivisor.app.services.ProbeVerdict.ENGINE_UNREACHABLE -> "El motor no está disponible"
+                    com.mivisor.app.services.ProbeVerdict.PREMIUM_REQUIRED -> "Comprobación no disponible sin Premium"
                     null -> "Comprobando…"
                 },
                 NeonType.H3, color = color, maxLines = 2
             )
         }
-        Txt(probe.step, NeonType.Body, color = Neon.Dim, maxLines = 3)
+        Txt(probe.step, NeonType.Body, color = Neon.Dim, maxLines = 5)
         probe.stat?.let { st ->
             Txt(
                 "Estado ${st.status ?: "—"} · ${st.peers} peers · ${st.speedDownKbps} KB/s" + (st.progress?.let { " · prebuffer $it %" } ?: ""),
@@ -238,22 +240,36 @@ fun ProbeDialog(probe: com.mivisor.app.ProbeUi, onPlay: () -> Unit, onRetry: () 
 }
 
 /**
- * Al volver a MiVisor poco después de abrir un canal Ace: "¿se ha visto?". La respuesta queda en el
- * Registro Ace Stream y "No" lanza la comprobación real del motor (peers / datos) sobre el mismo Content ID.
+ * Al volver a MiVisor poco después de abrir un canal Ace: "¿se ha visto?". La respuesta queda en el Registro
+ * Ace Stream. Si había VPN al abrirlo, se avisa: con 0 conexiones (Helping 0 / DL 0) la VPN es lo primero a descartar.
  */
 @Composable
-fun AceWatchedDialog(channelName: String, awaySeconds: Long, onYes: () -> Unit, onNo: () -> Unit, onDismiss: () -> Unit) {
+fun AceWatchedDialog(channelName: String, awaySeconds: Long, vpnAtLaunch: Boolean?, answered: Boolean?, onYes: () -> Unit, onNo: () -> Unit, onDismiss: () -> Unit) {
     val first = remember { FocusRequester() }
-    TvDialog(title = "¿Se ha visto el canal?", subtitle = channelName, onDismiss = onDismiss, width = 520.dp, initialFocus = first) {
-        Txt(
-            "Has vuelto tras ${com.mivisor.app.diagnostics.AceLog.duration(awaySeconds)}. Tu respuesta se guarda en el Registro Ace Stream " +
-                "(Ajustes → Registro de errores) para comparar con la app antigua.",
-            NeonType.Body, color = Neon.Dim, maxLines = 4
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SecondaryButton("No, se quedó cargando · Comprobar", onNo, Modifier.focusRequester(first), selected = true)
-            SecondaryButton("Sí, se veía", onYes)
-            SecondaryButton("Cerrar", onDismiss)
+    TvDialog(title = if (answered == false) "Qué probar ahora" else "¿Se ha visto el canal?", subtitle = channelName, onDismiss = onDismiss, width = 560.dp, initialFocus = first) {
+        if (answered == false) {
+            Txt(
+                if (vpnAtLaunch == true)
+                    "Al abrirlo había una VPN activa en la TV (la llave de la barra de estado). Si Ace mostraba Helping 0 / DL 0, " +
+                        "no conseguía conexiones: desconecta la VPN y abre el mismo canal. Para comparar, abre ese canal en la app " +
+                        "antigua con la VPN en el mismo estado."
+                else
+                    "No había VPN activa. Si Ace mostraba Helping 0 / DL 0, no conseguía conexiones con ese canal. Abre el mismo " +
+                        "canal en la app antigua justo ahora y anota si se ve: así sabremos si depende del momento o de MiVisor.",
+                NeonType.Body, color = Neon.Dim, maxLines = 6
+            )
+            SecondaryButton("Entendido", onDismiss, Modifier.focusRequester(first), selected = true)
+        } else {
+            Txt(
+                "Has vuelto tras ${com.mivisor.app.diagnostics.AceLog.duration(awaySeconds)}. Tu respuesta se guarda en el Registro Ace Stream " +
+                    "(Ajustes → Registro de errores).",
+                NeonType.Body, color = Neon.Dim, maxLines = 4
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SecondaryButton("No, se quedó cargando", onNo, Modifier.focusRequester(first), selected = true)
+                SecondaryButton("Sí, se veía", onYes)
+                SecondaryButton("Cerrar", onDismiss)
+            }
         }
     }
 }

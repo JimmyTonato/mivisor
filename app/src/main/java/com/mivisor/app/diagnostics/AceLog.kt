@@ -40,8 +40,14 @@ object AceLog {
         val systemDefault: String?,
         val providerVpn: Boolean,
         val systemVpn: Boolean?,
+        /** Estado de WARP según MiVisor ("conectada", "desconectada"…) y si se conecta sola al abrir MiVisor. */
+        val warp: String? = null,
+        val vpnAutoConnect: Boolean = false,
         val httpEngineMode: Boolean,
-        val engineBefore: String
+        val engineBefore: String,
+        /** ¿Arrancó MiVisor el motor (y cuándo)? La app antigua nunca lo hace. */
+        val engineOrigin: String? = null,
+        val aceAutoStart: Boolean = false
     )
 
     /** Texto de una apertura (puro: se prueba en la JVM). */
@@ -61,13 +67,17 @@ object AceLog {
             appendLine("App que lo abre: ${l.targetPackage ?: "la decide el sistema"} — ${l.reason}")
             appendLine("Apps para acestream:// en esta TV: ${l.handlers.ifEmpty { listOf("ninguna") }.joinToString()}")
             appendLine("Predeterminada del sistema: ${l.systemDefault ?: "ninguna (pregunta)"}")
-            appendLine("VPN: proveedor ${if (l.providerVpn) "con VPN" else "sin VPN"} · VPN activa en la TV: ${when (l.systemVpn) { true -> "SÍ"; false -> "no"; null -> "desconocido" }}")
-            appendLine("Motor antes de abrir: ${l.engineBefore}")
+            appendLine("VPN: proveedor ${if (l.providerVpn) "con VPN" else "sin VPN"} · VPN activa en la TV: ${yesNo(l.systemVpn)}" +
+                (l.warp?.let { " · WARP: $it" } ?: "") + " · Conectar VPN al abrir MiVisor: ${if (l.vpnAutoConnect) "sí" else "no"}")
+            appendLine("Motor antes de abrir: ${l.engineBefore}${if (l.engineBefore.startsWith("responde")) " → ya estaba en marcha: Ace NO mostrará su pantalla de arranque" else " → Ace lo arrancará (como con la app antigua)"}")
+            l.engineOrigin?.let { appendLine("Origen del motor: $it · Iniciar Ace al abrir MiVisor: ${if (l.aceAutoStart) "SÍ" else "no"}") }
         }
     }
 
-    fun returned(seconds: Long, engine: String) =
-        "  ↩ Volviste a MiVisor tras ${duration(seconds)} · motor: $engine"
+    fun returned(seconds: Long, engine: String, vpnNow: Boolean? = null) =
+        "  ↩ Volviste a MiVisor tras ${duration(seconds)} · motor: $engine" + (vpnNow?.let { " · VPN activa ahora: ${yesNo(it)}" } ?: "")
+
+    private fun yesNo(b: Boolean?) = when (b) { true -> "SÍ"; false -> "no"; null -> "desconocido" }
 
     fun answer(watched: Boolean) =
         "  ✎ Tu respuesta: ${if (watched) "SÍ se veía" else "NO se veía (se quedó cargando)"}"

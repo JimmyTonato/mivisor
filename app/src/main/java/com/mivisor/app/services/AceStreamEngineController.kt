@@ -47,6 +47,13 @@ class AceStreamEngineController(
         get() = prefs.getInt(KEY_PORT, AceProtocol.DEFAULT_HTTP_PORT)
         set(value) = prefs.edit().putInt(KEY_PORT, value).apply()
 
+    /**
+     * Última vez que MiVisor arrancó el motor por el servicio oficial (ms) y por qué. Para el Registro Ace Stream:
+     * la app antigua NUNCA arranca el motor; lo hace la propia app de Ace al abrir acestream:// (la "redirección").
+     */
+    val startedByMiVisor: Pair<Long, String>?
+        get() = prefs.getLong(KEY_STARTED, 0L).takeIf { it > 0 }?.let { it to prefs.getString(KEY_STARTED + "_why", null).orEmpty() }
+
     fun isInstalled(): Boolean = try {
         ServiceClient.getServicePackage(app); true
     } catch (e: ServiceClient.ServiceMissingException) {
@@ -68,8 +75,9 @@ class AceStreamEngineController(
     }
 
     /** Pulsar "Iniciar"/"Reintentar": arranque oficial y espera con tiempo límite. */
-    fun start() {
+    fun start(why: String = "botón Iniciar") {
         if (_state.value.phase == AcePhase.STARTING) return
+        prefs.edit().putLong(KEY_STARTED, System.currentTimeMillis()).putString(KEY_STARTED + "_why", why).apply()
         startJob?.cancel()
         set(AceStatus(AcePhase.STARTING), "starting service")
         startJob = scope.launch {
@@ -166,5 +174,6 @@ class AceStreamEngineController(
     private companion object {
         const val TAG = "MiVisor/Services"
         const val KEY_PORT = "ace_http_port"
+        const val KEY_STARTED = "ace_started_by_mivisor"
     }
 }

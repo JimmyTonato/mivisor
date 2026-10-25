@@ -52,6 +52,7 @@ class AceLogTest {
         assertTrue(text.contains("org.acestream.core — app recordada para el grupo «DAZN»"))
         assertTrue(text.contains("llega intacto"))
         assertTrue(text.contains("VPN activa en la TV: SÍ"))
+        assertTrue(AceLog.returned(77, "responde", vpnNow = true).contains("VPN activa ahora: SÍ"))
         assertTrue(text.contains("org.acestream.core, org.acestream.media"))
         assertFalse(text.contains(id(2)))                                    // nunca el Content ID completo
         assertTrue(text.contains(AceStreamLink.masked(id(2))))

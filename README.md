@@ -407,8 +407,13 @@ el log interno de Ace Stream (Android solo lo permite con ADB), así que guarda 
   grupo: "DAZN", "Movistar Deportes"…), recordada para todos los `acestream://`, única app compatible, elegida ahora o el sistema;
 - apps instaladas que abren `acestream://` y la predeterminada del sistema;
 - VPN del proveedor y **VPN activa en la TV**; estado del motor antes de abrir;
-- al volver a MiVisor: cuánto tardaste y estado del motor. Si vuelves en menos de 10 min pregunta **"¿Se ha visto el canal?"**:
-  "No, se quedó cargando" lanza la comprobación real del motor (peers, KB/s, datos) y todo queda anotado.
+- estado de WARP y si "Conectar VPN al abrir MiVisor" está activado;
+- al volver a MiVisor: cuánto tardaste, estado del motor y si sigue la VPN. Si vuelves en menos de 10 min pregunta
+  **"¿Se ha visto el canal?"** y, si no, explica qué probar (p. ej. sin VPN cuando Ace muestra Helping 0 / DL 0).
+
+Nota: la "Comprobación con el motor" usa la API HTTP de Ace (`/ace/getstream`), que en Ace Stream para Android **requiere
+Premium** ("To continue, you need to activate premium"). Sin Premium se indica así y no se toma como fallo del canal;
+abrir canales con `acestream://` (lo normal en MiVisor) no la usa.
 
 Botón **Olvidar apps recordadas** en la misma pantalla. "Ver en el móvil (QR)" sirve para pasar el registro.
 

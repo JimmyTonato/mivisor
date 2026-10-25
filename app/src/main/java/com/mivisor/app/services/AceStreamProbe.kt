@@ -29,7 +29,12 @@ enum class ProbeVerdict {
     /** El motor rechazó el Content ID o devolvió un error. */
     ENGINE_ERROR,
     /** No se pudo hablar con el motor (no está listo / no responde en el puerto). */
-    ENGINE_UNREACHABLE
+    ENGINE_UNREACHABLE,
+    /**
+     * Ace Stream para Android no deja usar su API HTTP (la de los navegadores/reproductores externos) sin Premium:
+     * la comprobación no se puede hacer. NO dice nada de si el canal funciona.
+     */
+    PREMIUM_REQUIRED
 }
 
 /** Una lectura de stat_url. */
@@ -94,6 +99,9 @@ object AceProbeProtocol {
         return ProbeVerdict.NO_DATA
     }
 
+    /** "To continue, you need to activate premium" (motor Android sin Premium). */
+    fun isPremiumError(error: String?): Boolean = error?.contains("premium", ignoreCase = true) == true
+
     private fun JsonObject.errorText(): String? =
         get("error")?.takeIf { !it.isJsonNull }?.let { e -> runCatching { e.asString }.getOrElse { e.toString() } }?.takeIf { it.isNotBlank() }
 
@@ -112,7 +120,10 @@ class AceStreamProbe(
         val startBody = http(AceProbeProtocol.startUrl(port, contentId, pid))
             ?: return ProbeResult(ProbeVerdict.ENGINE_UNREACHABLE, null, 0, "El motor no responde en el puerto $port.")
         val (session, error) = AceProbeProtocol.parseStart(startBody)
-        if (session == null) return ProbeResult(ProbeVerdict.ENGINE_ERROR, null, 0, "El motor rechazó el contenido: ${error ?: "error desconocido"}")
+        if (session == null) {
+            if (AceProbeProtocol.isPremiumError(error)) return ProbeResult(ProbeVerdict.PREMIUM_REQUIRED, null, 0, PREMIUM_TEXT)
+            return ProbeResult(ProbeVerdict.ENGINE_ERROR, null, 0, "El motor rechazó el contenido: ${error ?: "error desconocido"}")
+        }
         val stats = ArrayList<ProbeStat>()
         var seconds = 0
         try {
@@ -136,11 +147,16 @@ class AceStreamProbe(
             ProbeVerdict.NO_DATA -> "El motor acepta el contenido pero no llegan datos (${last?.peers ?: 0} peers). Puede que la emisión no esté activa ahora."
             ProbeVerdict.ENGINE_ERROR -> "El motor devolvió un error: ${last?.error ?: "desconocido"}"
             ProbeVerdict.ENGINE_UNREACHABLE -> "El motor no responde."
+            ProbeVerdict.PREMIUM_REQUIRED -> PREMIUM_TEXT
         }
         return ProbeResult(verdict, last, seconds, detail, session.isLive)
     }
 
     companion object {
+        const val PREMIUM_TEXT = "Esta comprobación usa la API HTTP del motor, que en Ace Stream para Android requiere Premium. " +
+            "No es un fallo del canal ni de cómo lo abre MiVisor (MiVisor lo abre con acestream://, que no la usa). " +
+            "Mira en la pantalla de Ace: Helping / DL indican si hay conexiones."
+
         suspend fun httpGet(url: String): String? = withContext(Dispatchers.IO) {
             var conn: HttpURLConnection? = null
             try {

@@ -116,7 +116,7 @@ fun ChannelOptionsDialog(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             MenuRow("Abrir", R.drawable.ic_play, onOpen, Modifier.focusRequester(first))
             MenuRow("Abrir con…", R.drawable.ic_apps, onOpenWith)
-            if (onProbe != null) MenuRow("Comprobar si se reproduce (Ace Stream)", R.drawable.ic_bolt, onProbe)
+            if (onProbe != null) MenuRow("Comprobar con el motor (requiere Ace Premium)", R.drawable.ic_bolt, onProbe)
             MenuRow("Compartir enlace", R.drawable.ic_share, onShare)
             MenuRow("Olvidar la app recordada para este canal", R.drawable.ic_refresh, onForget)
         }

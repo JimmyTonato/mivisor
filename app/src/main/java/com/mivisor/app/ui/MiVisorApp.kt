@@ -124,8 +124,9 @@ fun MiVisorApp(vm: MainViewModel) {
     var optionsFor by remember { mutableStateOf<Channel?>(null) }
     var picker by remember { mutableStateOf<PickerState?>(null) }
     // Registro Ace Stream: última apertura Ace pendiente de "¿se ha visto?" al volver.
-    var aceLaunched by remember { mutableStateOf<Pair<com.mivisor.app.model.Channel, Long>?>(null) }
-    var aceAsk by remember { mutableStateOf<Pair<com.mivisor.app.model.Channel, Long>?>(null) }
+    var aceLaunched by remember { mutableStateOf<Triple<com.mivisor.app.model.Channel, Long, Boolean?>?>(null) }
+    var aceAsk by remember { mutableStateOf<Triple<com.mivisor.app.model.Channel, Long, Boolean?>?>(null) }
+    var aceAnswered by remember { mutableStateOf<Boolean?>(null) }
     var vpnVersion by remember { mutableIntStateOf(0) }
     val navFocus = remember { FocusRequester() }
 
@@ -162,14 +163,17 @@ fun MiVisorApp(vm: MainViewModel) {
         val ch = request.channel
         if (ch.kind != ChannelKind.ACE) return
         val t = launcher.lastTrace ?: return
+        val vpn = com.mivisor.app.diagnostics.NetState.vpnActive(context)
         quick.logAce(com.mivisor.app.diagnostics.AceLog.entry(com.mivisor.app.diagnostics.AceLog.Launch(
             channel = ch.name, provider = ch.source, group = ch.group, storedUrl = ch.url, sentUri = t.sentUri,
             targetPackage = t.packageName, reason = t.reason, handlers = t.handlers, systemDefault = t.systemDefault,
             providerVpn = launcher.preferences.vpnFor(ch.providerId),
-            systemVpn = com.mivisor.app.diagnostics.NetState.vpnActive(context),
-            httpEngineMode = t.httpMode, engineBefore = quick.engineText(services.aceStatus)
+            systemVpn = vpn, warp = services.warpStatus.phase.name.lowercase(),
+            vpnAutoConnect = launcher.preferences.vpnAutoConnect,
+            httpEngineMode = t.httpMode, engineBefore = quick.engineText(services.aceStatus),
+            engineOrigin = quick.engineOrigin(), aceAutoStart = launcher.preferences.aceAutoStart
         )))
-        aceLaunched = ch to System.currentTimeMillis()
+        aceLaunched = Triple(ch, System.currentTimeMillis(), vpn)
     }
 
     fun launchNow(request: PlayRequest) {
@@ -232,12 +236,13 @@ fun MiVisorApp(vm: MainViewModel) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
-                    aceLaunched?.let { (ch, at) ->
+                    aceLaunched?.let { (ch, at, vpn) ->
                         aceLaunched = null
                         val now = System.currentTimeMillis()
                         val away = (now - at) / 1000
-                        quick.describeEngine { engine -> quick.logAce(com.mivisor.app.diagnostics.AceLog.returned(away, engine)) }
-                        if (com.mivisor.app.diagnostics.AceLog.shouldAsk(at, now)) aceAsk = ch to away
+                        val vpnNow = com.mivisor.app.diagnostics.NetState.vpnActive(context)
+                        quick.describeEngine { engine -> quick.logAce(com.mivisor.app.diagnostics.AceLog.returned(away, engine, vpnNow)) }
+                        if (com.mivisor.app.diagnostics.AceLog.shouldAsk(at, now)) { aceAnswered = null; aceAsk = Triple(ch, away, vpn) }
                     }
                     quick.onForeground()
                     vm.refreshStale()                 // canales: solo si la copia es vieja (la caché evita descargas)
@@ -441,17 +446,13 @@ fun MiVisorApp(vm: MainViewModel) {
             )
         }
 
-        aceAsk?.let { (ch, away) ->
+        aceAsk?.let { (ch, away, vpn) ->
             AceWatchedDialog(
-                channelName = ch.name, awaySeconds = away,
+                channelName = ch.name, awaySeconds = away, vpnAtLaunch = vpn, answered = aceAnswered,
                 onYes = { quick.logAce(com.mivisor.app.diagnostics.AceLog.answer(true)); aceAsk = null },
-                onNo = {
-                    quick.logAce(com.mivisor.app.diagnostics.AceLog.answer(false))
-                    aceAsk = null
-                    probeChannel = ch
-                    quick.probe(ch.name, ch.url)
-                },
-                onDismiss = { aceAsk = null }
+                // Sin comprobación por HTTP: en Ace para Android requiere Premium. Se explica qué probar.
+                onNo = { quick.logAce(com.mivisor.app.diagnostics.AceLog.answer(false)); aceAnswered = false },
+                onDismiss = { aceAsk = null; aceAnswered = null }
             )
         }
 

@@ -109,9 +109,10 @@ class QuickServicesViewModel(application: Application) : AndroidViewModel(applic
             return
         }
         probeJob?.cancel()
-        _probe.value = ProbeUi(channelName, true, "Preparando el motor de Ace Stream…")
+        _probe.value = ProbeUi(channelName, true, "Consultando el motor de Ace Stream…")
         probeJob = viewModelScope.launch {
-            val engine = ace.ensureReady()
+            // No se arranca el motor para comprobar: arrancarlo desde MiVisor es justo lo que la app antigua no hace.
+            val engine = ace.refresh()
             if (engine.phase != AcePhase.READY) {
                 _probe.value = ProbeUi(channelName, false, "El motor no está disponible (${QuickServiceText.ace(engine).status}).",
                     result = com.mivisor.app.services.ProbeResult(com.mivisor.app.services.ProbeVerdict.ENGINE_UNREACHABLE, null, 0, "El motor no está listo."))
@@ -147,6 +148,11 @@ class QuickServicesViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
+    /** "MiVisor lo arrancó a las 16:40 (botón…)" o "MiVisor no lo ha arrancado". */
+    fun engineOrigin(): String = ace.startedByMiVisor?.let { (at, why) ->
+        "MiVisor lo arrancó el ${java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.US).format(java.util.Date(at))} ($why)"
+    } ?: "MiVisor no lo ha arrancado nunca"
+
     fun engineText(a: AceStatus): String = when (a.phase) {
         AcePhase.READY -> "responde (versión ${a.version ?: "?"}, puerto ${a.httpPort ?: 6878})"
         else -> "${a.phase.name.lowercase()} (${QuickServiceText.ace(a).status})"
@@ -158,6 +164,7 @@ class QuickServicesViewModel(application: Application) : AndroidViewModel(applic
         com.mivisor.app.services.ProbeVerdict.NO_DATA -> "SIN DATOS"
         com.mivisor.app.services.ProbeVerdict.ENGINE_ERROR -> "ERROR DEL MOTOR"
         com.mivisor.app.services.ProbeVerdict.ENGINE_UNREACHABLE -> "MOTOR NO RESPONDE"
+        com.mivisor.app.services.ProbeVerdict.PREMIUM_REQUIRED -> "NO DISPONIBLE SIN PREMIUM (no indica fallo del canal)"
     }
 
     fun closeProbe() {
@@ -186,7 +193,7 @@ class QuickServicesViewModel(application: Application) : AndroidViewModel(applic
         }
         viewModelScope.launch {
             val a = ace.refresh()
-            if (!aceAutoDone && prefs.aceAutoStart && a.phase == AcePhase.STOPPED) ace.start()
+            if (!aceAutoDone && prefs.aceAutoStart && a.phase == AcePhase.STOPPED) ace.start("opción «Iniciar Ace al abrir MiVisor»")
             aceAutoDone = true
         }
     }
@@ -202,7 +209,7 @@ class QuickServicesViewModel(application: Application) : AndroidViewModel(applic
             RowAction.NONE -> Unit
             RowAction.REFRESH -> onForeground()
             RowAction.PANEL -> _panel.value = true
-            RowAction.ACE_START -> ace.start()
+            RowAction.ACE_START -> ace.start("botón Iniciar de Servicios")
             RowAction.ACE_INSTALL_HELP -> _help.value = HelpTopic.ACE_INSTALL
             RowAction.WARP_CONNECT -> warp.connect()
             RowAction.WARP_DISCONNECT -> warp.disconnect()
@@ -284,7 +291,7 @@ class QuickServicesViewModel(application: Application) : AndroidViewModel(applic
                 _launch.value = current.request                  // continúa con el mismo contenido
             }
             is PrepDecision.Work -> {
-                if (d.startAce) ace.start()
+                if (d.startAce) ace.start("preparación para el motor local HTTP")
                 if (d.connectVpn) warp.connect()
                 _prep.value = current.copy(ace = d.ace, vpn = d.vpn, problem = p.pendingAsk,
                     awaitingAuth = current.awaitingAuth && w.phase == WarpPhase.PERMISSION_REQUIRED)

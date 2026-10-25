@@ -125,6 +125,11 @@ class V14Test {
         val r = AceStreamProbe(http = engine.http, sleep = { }).run(engine.port, id)
         assertEquals(ProbeVerdict.ENGINE_ERROR, r.verdict)
         assertTrue(r.detail.contains("failed to load content"))
+        // Ace Stream para Android sin Premium: no es un error del canal.
+        val premium = FakeEngine(emptyList(), startBody = """{"response":null,"error":"To continue, you need to activate premium"}""")
+        val p = AceStreamProbe(http = premium.http, sleep = { }).run(premium.port, id)
+        assertEquals(ProbeVerdict.PREMIUM_REQUIRED, p.verdict)
+        assertTrue(p.detail.contains("no es un fallo del canal", ignoreCase = true))
         // Motor caído: la función HTTP no obtiene respuesta.
         val down = AceStreamProbe(http = { null }, sleep = { }).run(6878, id)
         assertEquals(ProbeVerdict.ENGINE_UNREACHABLE, down.verdict)
