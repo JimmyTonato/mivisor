@@ -5,13 +5,11 @@ import com.mivisor.app.services.AceStreamProbe
 import com.mivisor.app.services.ProbeStat
 import com.mivisor.app.services.ProbeVerdict
 import com.mivisor.app.ui.kit.TextFit
-import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.net.InetSocketAddress
 import java.util.Collections
 
 /** v14: nombres largos legibles y comprobación real de streams Ace (motor abierto ≠ stream llegando). */
@@ -83,59 +81,52 @@ class V14Test {
         assertEquals(ProbeVerdict.ENGINE_ERROR, AceProbeProtocol.verdict(listOf(ProbeStat(null, 0, 0, 0, null, "unknown content"))))
     }
 
-    /** Motor falso con la API HTTP real (getstream?format=json → stat → stop) sobre un socket local. */
-    private fun fakeEngine(stats: List<String>, startBody: String? = null): Pair<HttpServer, MutableList<String>> {
-        val requests = Collections.synchronizedList(ArrayList<String>())
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        var i = 0
-        server.createContext("/") { ex ->
-            val uri = ex.requestURI.toString()
-            requests += uri
-            val port = server.address.port
-            val body = when {
-                uri.startsWith("/ace/getstream") -> startBody ?: """{"response":{"stat_url":"http://127.0.0.1:$port/ace/stat/s1","command_url":"http://127.0.0.1:$port/ace/cmd/s1","playback_url":"http://127.0.0.1:$port/ace/r/s1","is_live":1},"error":null}"""
-                uri.startsWith("/ace/stat") -> stats[minOf(i++, stats.size - 1)]
+    /**
+     * Motor falso con la API HTTP real (getstream?format=json → stat → stop), inyectado como función HTTP.
+     * (Sin com.sun.net.httpserver: no existe en el classpath de los tests unitarios de Android.)
+     */
+    private class FakeEngine(private val stats: List<String>, private val startBody: String? = null) {
+        val port = 6878
+        val requests: MutableList<String> = Collections.synchronizedList(ArrayList<String>())
+        private var i = 0
+        val http: suspend (String) -> String? = { url ->
+            val path = url.removePrefix("http://127.0.0.1:$port")
+            requests += path
+            when {
+                path.startsWith("/ace/getstream") -> startBody ?: """{"response":{"stat_url":"http://127.0.0.1:$port/ace/stat/s1","command_url":"http://127.0.0.1:$port/ace/cmd/s1","playback_url":"http://127.0.0.1:$port/ace/r/s1","is_live":1},"error":null}"""
+                path.startsWith("/ace/stat") -> stats[minOf(i++, stats.size - 1)]
                 else -> """{"response":"ok","error":null}"""
             }
-            val bytes = body.toByteArray()
-            ex.sendResponseHeaders(200, bytes.size.toLong())
-            ex.responseBody.use { it.write(bytes) }
         }
-        server.start()
-        return server to requests
     }
 
     @Test fun probeDetectsRealStreamingAndStopsSession() = runBlocking {
-        val (server, requests) = fakeEngine(listOf(
+        val engine = FakeEngine(listOf(
             """{"response":{"status":"prebuf","peers":3,"speed_down":0,"downloaded":0,"progress":30},"error":null}""",
             """{"response":{"status":"dl","peers":11,"speed_down":900,"downloaded":200000},"error":null}""",
             """{"response":{"status":"dl","peers":12,"speed_down":950,"downloaded":900000},"error":null}"""
         ))
-        try {
-            val result = AceStreamProbe(sleep = { }).run(server.address.port, id, maxSeconds = 10)
-            assertEquals(ProbeVerdict.STREAMING, result.verdict)
-            assertTrue(requests.first().startsWith("/ace/getstream?id=$id&format=json"))   // Content ID intacto
-            assertTrue(requests.any { it.contains("method=stop") })                           // no deja la sesión abierta
-        } finally { server.stop(0) }
+        val result = AceStreamProbe(http = engine.http, sleep = { }).run(engine.port, id, maxSeconds = 10)
+        assertEquals(ProbeVerdict.STREAMING, result.verdict)
+        assertTrue(engine.requests.first().startsWith("/ace/getstream?id=$id&format=json"))   // Content ID intacto
+        assertTrue(engine.requests.any { it.contains("method=stop") })                           // no deja la sesión abierta
     }
 
     @Test fun probeReportsEngineOpenButNoData() = runBlocking {
-        val (server, _) = fakeEngine(listOf("""{"response":{"status":"prebuf","peers":0,"speed_down":0,"downloaded":0,"progress":0},"error":null}"""))
-        try {
-            val result = AceStreamProbe(sleep = { }).run(server.address.port, id, maxSeconds = 5)
-            assertEquals(ProbeVerdict.PREBUFFERING_ONLY, result.verdict)
-            assertEquals(5, result.seconds)
-        } finally { server.stop(0) }
+        val engine = FakeEngine(listOf("""{"response":{"status":"prebuf","peers":0,"speed_down":0,"downloaded":0,"progress":0},"error":null}"""))
+        val result = AceStreamProbe(http = engine.http, sleep = { }).run(engine.port, id, maxSeconds = 5)
+        assertEquals(ProbeVerdict.PREBUFFERING_ONLY, result.verdict)
+        assertEquals(5, result.seconds)
+        assertTrue(engine.requests.any { it.contains("method=stop") })
     }
 
     @Test fun probeEngineRejectsContentOrIsDown() = runBlocking {
-        val (server, _) = fakeEngine(emptyList(), startBody = """{"response":null,"error":"failed to load content"}""")
-        try {
-            val r = AceStreamProbe(sleep = { }).run(server.address.port, id)
-            assertEquals(ProbeVerdict.ENGINE_ERROR, r.verdict)
-            assertTrue(r.detail.contains("failed to load content"))
-        } finally { server.stop(0) }
-        val down = AceStreamProbe(sleep = { }).run(1, id)
+        val engine = FakeEngine(emptyList(), startBody = """{"response":null,"error":"failed to load content"}""")
+        val r = AceStreamProbe(http = engine.http, sleep = { }).run(engine.port, id)
+        assertEquals(ProbeVerdict.ENGINE_ERROR, r.verdict)
+        assertTrue(r.detail.contains("failed to load content"))
+        // Motor caído: la función HTTP no obtiene respuesta.
+        val down = AceStreamProbe(http = { null }, sleep = { }).run(6878, id)
         assertEquals(ProbeVerdict.ENGINE_UNREACHABLE, down.verdict)
     }
 }
