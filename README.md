@@ -281,6 +281,43 @@ Se usa el **mismo protocolo** que `MiVisor-WARP-TestClient-1.2` (`WarpControlCon
 - **Cambiar de clave obliga a desinstalar:** Android no permite actualizar una app firmada con otra clave, así que habrá que desinstalar la versión firmada con la clave de desarrollo. Se pierden las categorías e historial guardados.
 - **Si la firma no coincide:** la fila muestra "Sin permiso de control (firma)" y queda registrado en el log (`MiVisor/Services`). Nunca se rebaja el permiso para "hacerlo funcionar".
 
+## Escribir con el móvil (QR)
+
+En el formulario de **Abrir un código / Nueva categoría / Editar categoría**, debajo del campo *Código*:
+
+- **Escribir con mando**: lleva el foco al campo (como siempre).
+- **Usar móvil / QR**: muestra un QR. Al escanearlo, el móvil abre una página servida **por el propio televisor**
+  dentro de la red local; se pega el código y se pulsa *ENVIAR AL TELEVISOR*.
+  - El texto **sustituye** lo que hubiera en el campo y aparece "Texto recibido desde el móvil". **No se guarda solo**:
+    hay que pulsar Guardar/Abrir.
+  - Sesión temporal: token aleatorio (SecureRandom, 192 bits), **un solo uso**, caduca a los **5 min**
+    ("La sesión ha caducado" → *Generar nuevo QR*; el móvil ve "Esta sesión ya no está disponible.").
+  - Atrás o *Cancelar* cierran el QR y anulan la sesión; salir del formulario también.
+  - El servidor HTTP solo existe mientras hay una sesión: puerto 8765 (o 8766…8774, o uno libre; el QR lleva el real),
+    escuchando solo en la IP de la LAN. Nunca usa la IP de WARP/VPN ni 127.0.0.1. TV por cable + móvil por Wi-Fi funciona
+    si están en la misma red.
+  - Solo `GET /pair/<token>`, `POST /pair/<token>/send` (`{"text": …}`, máx. 16 KB) y `GET /log/<token>` (registro de errores,
+    solo lectura). Nada más: no sirve ficheros ni tiene administración. Sin backend externo; el QR se genera en el televisor
+    (Nayuki QR Code generator, MIT, en `io/nayuki/qrcodegen`).
+  - **Los códigos recibidos no se registran en ningún log.**
+  - Si no se conecta: "Asegúrate de que ambos dispositivos están en la misma red y que la red permite comunicación entre
+    dispositivos" (algunas redes de invitados aíslan los equipos).
+- Permisos: `INTERNET` y `ACCESS_NETWORK_STATE` (para distinguir Wi-Fi/Ethernet de la VPN). Sin servicio en primer plano.
+
+Código: `remote/` (RemoteSession, MobileInputServer, MobilePages, LanAddress, AndroidLan, QrGenerator, MobileInputManager,
+RemoteFill), `RemoteInputViewModel.kt`, `ui/components/RemotePanel.kt`. Pruebas: `RemoteInputTest`.
+
+## Registro de errores
+
+**Ajustes → Registro de errores**. Si MiVisor se cierra inesperadamente, al volver a abrirla avisa y aquí aparece el detalle:
+fecha, versión, dispositivo, últimos pasos (pantallas y teclas del mando) y la traza. Se guardan los 10 últimos, limpios de
+URLs, códigos, hashes y tokens (`diagnostics/LogSanitizer`).
+
+- **Ver en el móvil (QR)**: abre el texto en el móvil (solo lectura, botón COPIAR) para enviarlo a quien lo vaya a revisar.
+- **Borrar registro**.
+- Red de seguridad del mando: si la búsqueda de foco falla al pulsar una flecha, la app ya no se cierra; se ignora esa pulsación
+  y se guarda como "Error recuperado" con su traza.
+
 ## Mando
 
 | Tecla | Acción |

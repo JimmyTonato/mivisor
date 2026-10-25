@@ -37,7 +37,8 @@ fun SettingsScreen(
     animations: Boolean,
     onAnimationsChange: (Boolean) -> Unit,
     onClearCache: () -> Unit,
-    onOpenServices: () -> Unit = {}
+    onOpenServices: () -> Unit = {},
+    onOpenErrorLog: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var selector by remember { mutableStateOf(prefs.selectorEnabled) }
@@ -108,6 +109,11 @@ fun SettingsScreen(
             TvButton("Servicios y diagnóstico", onOpenServices, icon = R.drawable.ic_list, style = ButtonStyle.GHOST)
             Txt(
                 "Comprueba qué fuentes de la agenda, los canales y los retratos están funcionando.",
+                Type.Caption, color = Palette.TextDim
+            )
+            TvButton("Registro de errores", onOpenErrorLog, icon = R.drawable.ic_history, style = ButtonStyle.GHOST)
+            Txt(
+                "Si la app se cierra o falla, aquí verás el detalle y podrás pasarlo al móvil con un QR.",
                 Type.Caption, color = Palette.TextDim
             )
 

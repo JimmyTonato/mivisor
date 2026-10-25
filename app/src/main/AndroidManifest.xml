@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Escribir con el móvil: saber qué red es Wi-Fi/Ethernet y cuál es la VPN (para no usar la IP de WARP). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!--
       Control de la WARP modificada (com.cloudflare.onedotonedotonedotone). Es un permiso "signature":
       solo se concede si MiVisor está firmado con la MISMA clave que WARP (ver README → Servicios rápidos).

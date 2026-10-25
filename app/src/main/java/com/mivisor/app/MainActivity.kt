@@ -2,22 +2,59 @@ package com.mivisor.app
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.mivisor.app.diagnostics.CrashReporter
 import com.mivisor.app.ui.MiVisorApp
 
 class MainActivity : ComponentActivity() {
     private val vm: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        CrashReporter.install(applicationContext)
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null && CrashReporter.takeUnseenCrash(this)) {
+            Toast.makeText(
+                this,
+                "MiVisor se cerró inesperadamente la última vez. Puedes ver el error en Ajustes → Registro de errores.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
         enterImmersiveMode()
         if (savedInstanceState == null) handleDeepLink(intent)
         setContent { MiVisorApp(vm) }
+    }
+
+    /**
+     * Red de seguridad para el mando: si la búsqueda de foco de Compose falla al pulsar una flecha
+     * (fallo conocido de foco en filas/listas perezosas), no cerramos la app. Se guarda el error con su
+     * traza en el Registro de errores para poder corregirlo, y se ignora esa pulsación.
+     * Solo se capturan errores de ejecución durante el reparto de teclas; nada más.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean = try {
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+            CrashReporter.breadcrumb("Tecla ${KeyEvent.keyCodeToString(event.keyCode).removePrefix("KEYCODE_")}")
+        }
+        super.dispatchKeyEvent(event)
+    } catch (e: IllegalStateException) {
+        recoverKey(event, e)
+    } catch (e: IllegalArgumentException) {
+        recoverKey(event, e)
+    } catch (e: IndexOutOfBoundsException) {
+        recoverKey(event, e)
+    } catch (e: NullPointerException) {
+        recoverKey(event, e)
+    }
+
+    private fun recoverKey(event: KeyEvent, e: RuntimeException): Boolean {
+        CrashReporter.nonFatal(applicationContext, "tecla ${KeyEvent.keyCodeToString(event.keyCode)}", e)
+        return true
     }
 
     /** Android vuelve a mostrar las barras tras diálogos, teclado o al volver a la app. */

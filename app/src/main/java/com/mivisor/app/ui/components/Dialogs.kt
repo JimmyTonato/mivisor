@@ -16,6 +16,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,7 +32,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mivisor.app.R
+import com.mivisor.app.RemoteInputViewModel
+import com.mivisor.app.remote.RemoteFill
+import com.mivisor.app.remote.RemoteState
 import com.mivisor.app.data.Codes
 import com.mivisor.app.model.Channel
 import com.mivisor.app.player.RememberScope
@@ -184,18 +191,54 @@ fun SourceDialog(
     onDismiss: () -> Unit,
     onResult: (name: String, code: String, action: SourceAction) -> Unit
 ) {
+    val remote: RemoteInputViewModel = viewModel()
+    val remoteState by remote.state.collectAsState()
     var name by remember { mutableStateOf(initialName) }
     var code by remember { mutableStateOf(initialCode) }
     var showError by remember { mutableStateOf(false) }
+    var receivedNotice by remember { mutableStateOf(false) }
+    var focusCodeTick by remember { mutableIntStateOf(0) }
     val valid = Codes.normalizeOrNull(code) != null
-    val first = remember { FocusRequester() }
+    val codeFocus = remember { FocusRequester() }
+    val nameFocus = remember { FocusRequester() }
+    val panelFocus = remember { FocusRequester() }
+    val showingQr = remoteState !is RemoteState.Idle && remoteState !is RemoteState.Received
+
+    // Salir del formulario (guardar, cancelar, Atrás, cambiar de pantalla) invalida la sesión y apaga el servidor.
+    DisposableEffect(Unit) { onDispose { remote.cancel() } }
+
+    // Texto recibido: sustituye el contenido del campo. NO se guarda: el usuario decide.
+    LaunchedEffect(remoteState) {
+        val s = remoteState
+        if (s is RemoteState.Received) {
+            code = RemoteFill.apply(code, s.text)
+            showError = false
+            receivedNotice = true
+            remote.consume()
+            focusCodeTick++
+        }
+    }
+    LaunchedEffect(focusCodeTick) {
+        if (focusCodeTick > 0) {
+            repeat(5) {
+                withFrameNanos { }
+                if (runCatching { codeFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            }
+        }
+    }
 
     fun submit(action: SourceAction) {
         if (!valid) {
             showError = true
             return
         }
+        remote.cancel()
         onResult(name, code, action)
+    }
+
+    fun closeQr() {
+        remote.cancel()
+        focusCodeTick++
     }
 
     val title = when (mode) {
@@ -203,32 +246,55 @@ fun SourceDialog(
         SourceDialogMode.ADD -> "Nueva categoría"
         SourceDialogMode.EDIT -> "Editar categoría"
     }
-    val subtitle = when (mode) {
-        SourceDialogMode.OPEN_CODE -> "Escribe el código. Puedes guardarlo como categoría para tenerlo en el menú."
+    val subtitle = when {
+        showingQr -> "Escribir desde el móvil"
+        mode == SourceDialogMode.OPEN_CODE -> "Escribe el código. Puedes guardarlo como categoría para tenerlo en el menú."
         else -> "Las categorías aparecen en el menú lateral en el orden que elijas."
     }
     val codeError = if (showError && !valid) "Solo letras, números, puntos y guiones" else null
 
-    TvDialog(title = title, subtitle = subtitle, onDismiss = onDismiss, initialFocus = first) {
-        if (mode == SourceDialogMode.OPEN_CODE) {
-            TvTextField(code, { code = it; showError = false }, "Código", placeholder = "p. ej. deportes", error = codeError, focusRequester = first)
-            TvTextField(name, { name = it }, "Nombre (opcional, para guardarlo)", placeholder = "p. ej. Deportes")
+    TvDialog(
+        title = title,
+        subtitle = subtitle,
+        // Con el QR en pantalla, Atrás solo cierra el QR (y anula la sesión); sin él, cierra el formulario.
+        onDismiss = { if (showingQr) closeQr() else onDismiss() },
+        width = if (showingQr) 640.dp else 560.dp,
+        initialFocus = if (mode == SourceDialogMode.OPEN_CODE) codeFocus else nameFocus
+    ) {
+        if (showingQr) {
+            RemotePanel(remoteState, onCancel = { closeQr() }, onRetry = { remote.startInput() }, firstFocus = panelFocus)
         } else {
-            TvTextField(name, { name = it }, "Nombre", placeholder = "p. ej. Deportes", focusRequester = first)
-            TvTextField(code, { code = it; showError = false }, "Código", placeholder = "p. ej. deportes", error = codeError)
-        }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            when (mode) {
-                SourceDialogMode.OPEN_CODE -> {
-                    TvButton("Abrir", { submit(SourceAction.OPEN_ONLY) }, icon = R.drawable.ic_play, style = ButtonStyle.PRIMARY)
-                    TvButton("Guardar y abrir", { submit(SourceAction.SAVE_AND_OPEN) }, icon = R.drawable.ic_add)
+            val codeField: @Composable () -> Unit = {
+                TvTextField(
+                    code, { code = it; showError = false; receivedNotice = false }, "Código",
+                    placeholder = "p. ej. deportes", error = codeError, focusRequester = codeFocus
+                )
+                if (receivedNotice) Txt("✓ Texto recibido desde el móvil", Type.Caption, color = Palette.Cyan)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TvButton("Escribir con mando", { focusCodeTick++ }, icon = R.drawable.ic_edit, style = ButtonStyle.GHOST)
+                    TvButton("Usar móvil / QR", { receivedNotice = false; remote.startInput() }, icon = R.drawable.ic_share, style = ButtonStyle.GHOST)
                 }
-                SourceDialogMode.ADD ->
-                    TvButton("Guardar y abrir", { submit(SourceAction.SAVE_AND_OPEN) }, icon = R.drawable.ic_add, style = ButtonStyle.PRIMARY)
-                SourceDialogMode.EDIT ->
-                    TvButton("Guardar", { submit(SourceAction.SAVE) }, style = ButtonStyle.PRIMARY)
             }
-            TvButton("Cancelar", onDismiss, style = ButtonStyle.GHOST)
+            if (mode == SourceDialogMode.OPEN_CODE) {
+                codeField()
+                TvTextField(name, { name = it }, "Nombre (opcional, para guardarlo)", placeholder = "p. ej. Deportes", focusRequester = nameFocus)
+            } else {
+                TvTextField(name, { name = it }, "Nombre", placeholder = "p. ej. Deportes", focusRequester = nameFocus)
+                codeField()
+            }
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                when (mode) {
+                    SourceDialogMode.OPEN_CODE -> {
+                        TvButton("Abrir", { submit(SourceAction.OPEN_ONLY) }, icon = R.drawable.ic_play, style = ButtonStyle.PRIMARY)
+                        TvButton("Guardar y abrir", { submit(SourceAction.SAVE_AND_OPEN) }, icon = R.drawable.ic_add)
+                    }
+                    SourceDialogMode.ADD ->
+                        TvButton("Guardar y abrir", { submit(SourceAction.SAVE_AND_OPEN) }, icon = R.drawable.ic_add, style = ButtonStyle.PRIMARY)
+                    SourceDialogMode.EDIT ->
+                        TvButton("Guardar", { submit(SourceAction.SAVE) }, style = ButtonStyle.PRIMARY)
+                }
+                TvButton("Cancelar", { remote.cancel(); onDismiss() }, style = ButtonStyle.GHOST)
+            }
         }
     }
 }

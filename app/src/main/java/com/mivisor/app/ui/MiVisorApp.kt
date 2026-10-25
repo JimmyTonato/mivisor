@@ -3,6 +3,8 @@ package com.mivisor.app.ui
 import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import com.mivisor.app.diagnostics.CrashReporter
+import com.mivisor.app.ui.screens.ErrorLogScreen
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -54,7 +56,7 @@ import com.mivisor.app.ui.screens.agenda.AgendaScreen
 import com.mivisor.app.ui.theme.LocalAnimations
 
 /** Pantallas. Las 4 primeras son pestañas; SOURCES ("Gestionar") se abre desde Canales. */
-private enum class Screen(val tab: Int) { CATALOG(0), AGENDA(1), HISTORY(2), SETTINGS(3), SOURCES(0), SERVICES(3) }
+private enum class Screen(val tab: Int) { CATALOG(0), AGENDA(1), HISTORY(2), SETTINGS(3), SOURCES(0), SERVICES(3), LOGS(3) }
 
 private val TABS = listOf(
     NavTab("Canales", R.drawable.ic_apps),
@@ -140,9 +142,12 @@ fun MiVisorApp(vm: MainViewModel) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // Pasos recientes para el registro de errores (solo el nombre de la pantalla).
+    LaunchedEffect(screen) { CrashReporter.breadcrumb("Pantalla ${screen.name}") }
+
     // Atrás: cualquier pantalla → Canales; en Canales, el sistema (salir).
     BackHandler(enabled = screen != Screen.CATALOG) {
-        screen = if (screen == Screen.SERVICES) Screen.SETTINGS else Screen.CATALOG
+        screen = if (screen == Screen.SERVICES || screen == Screen.LOGS) Screen.SETTINGS else Screen.CATALOG
     }
 
     CompositionLocalProvider(LocalAnimations provides animations, LocalAppLayout provides layout) {
@@ -206,9 +211,11 @@ fun MiVisorApp(vm: MainViewModel) {
                                 launcher.preferences.animations = it
                             },
                             onClearCache = vm::clearCache,
-                            onOpenServices = { screen = Screen.SERVICES }
+                            onOpenServices = { screen = Screen.SERVICES },
+                            onOpenErrorLog = { screen = Screen.LOGS }
                         )
                         Screen.SERVICES -> ServicesScreen(onBack = { screen = Screen.SETTINGS })
+                        Screen.LOGS -> ErrorLogScreen(onBack = { screen = Screen.SETTINGS })
                     }
                 }
                 if (layout.compact) {
