@@ -118,7 +118,7 @@ fun EventChannelsScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         itemsIndexed(lines, key = { i, l -> "${l.source.url}_$i" }) { index, line ->
-                            SourceRow(line, status, { onPlay(line.source) }, if (index == 0) Modifier.focusRequester(first) else Modifier)
+                            SourceRow(line, status, event.competition, { onPlay(line.source) }, if (index == 0) Modifier.focusRequester(first) else Modifier)
                         }
                         if (withoutSource.isNotEmpty()) item(key = "broadcast") { BroadcastStrip(withoutSource) }
                         item(key = "hint") { SourcesHint(onConfigureSources, Modifier.focusRequester(action)) }
@@ -167,15 +167,16 @@ private fun Center(event: AgendaEvent, status: EventStatus) {
 }
 
 @Composable
-private fun SourceRow(line: SourceLine, status: EventStatus, onClick: () -> Unit, modifier: Modifier) {
+private fun SourceRow(line: SourceLine, status: EventStatus, competition: String?, onClick: () -> Unit, modifier: Modifier) {
     val source = line.source
     val quality = ChannelGrouping.quality(source.name)
-    NeonCard(onClick = onClick, modifier = modifier.fillMaxWidth().height(66.dp), radius = 14.dp, contentAlignment = Alignment.CenterStart) { focused ->
+    NeonCard(onClick = onClick, modifier = modifier.fillMaxWidth().height(76.dp), radius = 14.dp, contentAlignment = Alignment.CenterStart) { focused ->
         Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             ChannelLogo(line.agendaChannel.name, 44.dp)
             Box(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Txt(line.agendaChannel.name, NeonType.H3.copy(fontSize = 15.sp))
+                Txt(listOfNotNull("Deportes", competition).joinToString("  |  "), NeonType.Small)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (status == EventStatus.LIVE) MetaTag("En directo", dot = Neon.Red, color = Ui.LiveRed)
                     line.agendaChannel.note?.takeIf { it.isNotBlank() }?.let { MetaTag(it) }
@@ -231,6 +232,20 @@ private fun SourcesHint(onConfigure: () -> Unit, modifier: Modifier) {
     }
 }
 
+/** Resumen con los datos que sí tenemos (sin inventar jornada, estadio ni ciudad). */
+private fun aboutText(event: AgendaEvent, agenda: AgendaUi): String {
+    val comp = event.competition ?: sportLabel(event.sport)
+    val first = if (event.home != null && event.away != null) "${event.home} recibe a ${event.away} en $comp." else "${event.title} · $comp."
+    val channels = agenda.channelsOf(event).take(3).map { it.name }
+    val sources = agenda.optionCount(event)
+    return listOfNotNull(
+        first,
+        "${dayTitle(event.startMillis)}, ${eventTimeText(event)}.",
+        channels.takeIf { it.isNotEmpty() }?.let { "Se emite en ${it.joinToString(", ")}." },
+        when (sources) { 0 -> "Ninguno de tus proveedores lo tiene todavía."; 1 -> "Tienes 1 fuente en tus proveedores."; else -> "Tienes $sources fuentes en tus proveedores." }
+    ).joinToString(" ")
+}
+
 @Composable
 private fun SidePanel(event: AgendaEvent, agenda: AgendaUi, best: Channel?, onPlay: (Channel) -> Unit, modifier: Modifier) {
     val status = event.status(agenda.now)
@@ -256,7 +271,8 @@ private fun SidePanel(event: AgendaEvent, agenda: AgendaUi, best: Channel?, onPl
         Txt("${dayTitle(event.startMillis)} · ${eventTimeText(event)}", NeonType.Body.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center), color = Neon.Dim, modifier = Modifier.fillMaxWidth())
         if (status == EventStatus.LIVE) Txt("● En directo ahora", NeonType.Body.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center), color = Ui.Green, modifier = Modifier.fillMaxWidth())
         if (best != null) PrimaryButton("Ver ahora", { onPlay(best) }, Modifier.fillMaxWidth(), height = 36.dp)
-        Box(Modifier.height(4.dp))
+        Txt("Acerca de este partido", NeonType.H3.copy(fontSize = 13.sp), modifier = Modifier.padding(top = 4.dp))
+        Txt(aboutText(event, agenda), NeonType.Small.copy(fontSize = 12.sp, lineHeight = 16.sp), maxLines = 5)
         InfoLine(R.drawable.ic_trophy, "Competición", event.competition ?: sportLabel(event.sport))
         InfoLine(R.drawable.ic_calendar, "Fecha", "${dayTitle(event.startMillis)}, ${eventTimeText(event)}")
         InfoLine(R.drawable.ic_tv, "Emisión", agenda.channelsOf(event).take(3).joinToString(", ") { it.name }.ifEmpty { "Por confirmar" })

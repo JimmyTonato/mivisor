@@ -9,6 +9,7 @@ import java.security.SecureRandom
  *  - Token de 24 bytes de SecureRandom (192 bits) en Base64 URL: aleatorio, no predecible, único por sesión.
  *  - Caduca a los [ttlMs] (5 min por defecto).
  *  - INPUT es de un solo uso: tras recibir el texto, el token deja de valer.
+ *  - EDIT ("Editar con móvil") admite VARIOS envíos mientras no caduque (corregir y volver a enviar).
  *  - Cancelar o salir del formulario la invalida.
  */
 class RemoteSession(
@@ -19,12 +20,19 @@ class RemoteSession(
     /** Texto que se muestra en el móvil (solo en modo SHOW, p. ej. el registro de errores). */
     val shownText: String? = null
 ) {
-    enum class Mode { INPUT, SHOW }
+    enum class Mode { INPUT, SHOW, EDIT }
     enum class Check { OK, INVALID, EXPIRED, USED, CANCELLED }
 
     val expiresAt: Long get() = createdAt + ttlMs
 
     @Volatile private var used = false
+    @Volatile private var sends = 0
+
+    /** EDIT: valores actuales del formulario de la TV (la página del móvil se abre con ellos). */
+    @Volatile var title: String = ""
+    @Volatile var code: String = ""
+    /** EDIT: encabezado de la página ("Editar proveedor", "Añadir proveedor"…). */
+    @Volatile var heading: String = "Editar"
     @Volatile private var cancelled = false
 
     /** Comprueba token (en tiempo constante), caducidad, uso y cancelación. */
@@ -44,12 +52,26 @@ class RemoteSession(
         return true
     }
 
+    /**
+     * EDIT: acepta un envío más (no consume el token). Límite de envíos por sesión para que nadie de la red
+     * pueda inundar el formulario. Devuelve false si caducó, se canceló o se superó el límite.
+     */
+    @Synchronized
+    fun acceptEdit(candidate: String?, now: Long): Boolean {
+        if (mode != Mode.EDIT || check(candidate, now) != Check.OK || sends >= MAX_EDITS) return false
+        sends++
+        return true
+    }
+
+    val editCount: Int get() = sends
+
     fun cancel() { cancelled = true }
 
     val isActive: Boolean get() = !used && !cancelled
 
     companion object {
         const val DEFAULT_TTL_MS = 5 * 60_000L
+        const val MAX_EDITS = 100
         private const val TOKEN_BYTES = 24
         private val random = SecureRandom()
 

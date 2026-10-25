@@ -100,9 +100,10 @@ fun ChannelsScreen(
             subtitle = if (selected == null) "Explora todos los canales disponibles organizados por proveedor."
             else "Proveedor: ${selected.name} · ${groups.size} canales",
             meta = if (providers.isEmpty()) null else "${providers.size} ${if (providers.size == 1) "proveedor" else "proveedores"}  ·  ${library.channelTotal} canales" +
-                (if (library.refreshing) "  ·  actualizando…" else "")
+                "  ·  " + updateLine(library, selected),
+            metaColor = if ((selected?.let { listOf(it) } ?: providers).any { it.lastFailure != null }) Ui.Amber else Neon.Faint
         ) {
-            if (!layout.compact && providers.isNotEmpty()) {
+            if (providers.isNotEmpty()) {
                 SecondaryButton(if (library.refreshing) "Actualizando…" else "Actualizar", { onRefresh(library.selected) }, icon = R.drawable.ic_refresh, height = 34.dp)
             }
         }
@@ -119,6 +120,20 @@ fun ChannelsScreen(
                 Content(library, selected, groups, firstCard, restore, restoreKey, onOpenGroup, onPlay, onOptions, onRefresh, onEditProvider, Modifier.weight(1f).fillMaxHeight())
             }
         }
+    }
+}
+
+/** "actualizado hace 5 min" · "actualizando…" · "no se pudo actualizar: últimos datos de hace 2 h". */
+private fun updateLine(library: LibraryUi, selected: ProviderState?): String {
+    val list = selected?.let { listOf(it) } ?: library.providers.orEmpty()
+    if (library.refreshing && list.any { it.loading }) return "actualizando…"
+    val failed = list.filter { it.lastFailure != null }
+    val oldest = list.mapNotNull { it.updatedAt.takeIf { u -> u > 0 } }.minOrNull()
+    return when {
+        failed.isNotEmpty() -> "no se pudo actualizar${if (selected == null) " (${failed.size})" else ""}: se muestran los últimos datos" +
+            (oldest?.let { " de ${relativeTime(it)}" } ?: "")
+        oldest != null -> "actualizado ${relativeTime(oldest)}"
+        else -> "sin actualizar"
     }
 }
 
@@ -143,6 +158,7 @@ private fun ProviderColumn(
             items(providers, key = { "p_${it.id}" }) { p ->
                 ProviderItem(
                     p.name, p.channelCount, p.name, library.selected == p.id, loading = p.loading, error = p.error != null,
+                    stale = p.lastFailure != null,
                     onClick = { onSelect(p.id) },
                     modifier = if (library.selected == p.id) Modifier.focusRequester(focus) else Modifier,
                     transient = p.transient
@@ -167,7 +183,8 @@ private fun ProviderItem(
     error: Boolean,
     onClick: () -> Unit,
     modifier: Modifier,
-    transient: Boolean = false
+    transient: Boolean = false,
+    stale: Boolean = false
 ) {
     TvClickable(
         onClick = onClick,
@@ -191,6 +208,11 @@ private fun ProviderItem(
             when {
                 loading -> Spinner(14.dp, Neon.Cyan)
                 error -> Box(Modifier.size(8.dp).background(Neon.Red, RoundedCornerShape(4.dp)))
+                stale -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(7.dp).background(Ui.Amber, RoundedCornerShape(4.dp)))
+                    Box(Modifier.width(5.dp))
+                    Txt(count.toString(), NeonType.Small, color = if (selected) Neon.Text else Neon.Faint)
+                }
                 else -> Txt(count.toString(), NeonType.Small, color = if (selected) Neon.Text else Neon.Faint)
             }
             Box(Modifier.width(4.dp))

@@ -137,6 +137,12 @@ fun MiVisorApp(vm: MainViewModel) {
         stack = stack.dropLast(1) + stack.last().copy(restoreKey = fromKey) + Entry(route)
     }
 
+    /** "Ver calendario completo": abre la sección Agenda con el foco en el contenido. */
+    fun openAgenda() {
+        contentFocus = true
+        stack = listOf(Entry(Route.Tab(NavItem.AGENDA)))
+    }
+
     fun pop() {
         contentFocus = true
         stack = if (stack.size > 1) stack.dropLast(1) else listOf(Entry(Route.Tab(NavItem.HOME)))
@@ -198,7 +204,10 @@ fun MiVisorApp(vm: MainViewModel) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> quick.onForeground()
+                Lifecycle.Event.ON_RESUME -> {
+                    quick.onForeground()
+                    vm.refreshStale()                 // canales: solo si la copia es vieja (la caché evita descargas)
+                }
                 Lifecycle.Event.ON_STOP -> quick.onBackground()
                 else -> Unit
             }
@@ -206,6 +215,9 @@ fun MiVisorApp(vm: MainViewModel) {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+
+    // Al entrar en Canales se comprueba si hay datos nuevos (sin repetir si se comprobó hace poco).
+    LaunchedEffect(root) { if (root == NavItem.CHANNELS) vm.refreshStale() }
 
     // Pasos recientes para el registro de errores (solo el tipo de pantalla).
     LaunchedEffect(current.route) { CrashReporter.breadcrumb("Pantalla ${routeName(current.route)}") }
@@ -225,7 +237,7 @@ fun MiVisorApp(vm: MainViewModel) {
                             onWatch = ::watch,
                             onOpenEvent = { e, key -> push(Route.Event(e.id, "Inicio"), key) },
                             onOpenCompetition = { c, key -> push(Route.CompetitionPage(c), key) },
-                            onOpenCalendar = { key -> agendaVm.openCalendarFor(null); push(Route.Calendar, key) },
+                            onOpenCalendar = { _ -> agendaVm.openCalendarFor(null); openAgenda() },
                             onOpenLive = { selectTab(NavItem.LIVE) },
                             onAddProvider = { sourceDialog = SourceDialogState(SourceDialogMode.ADD) },
                             restoreKey = restoreKey, autoFocus = contentFocus
@@ -233,7 +245,18 @@ fun MiVisorApp(vm: MainViewModel) {
                         NavItem.LIVE -> LiveScreen(
                             agenda = agenda, onSport = agendaVm::setLiveSport, onRefresh = { agendaVm.load(force = true) },
                             onWatch = ::watch,
-                            onOpenCalendar = { agendaVm.openCalendarFor(null); push(Route.Calendar, null) },
+                            onOpenCalendar = { agendaVm.openCalendarFor(null); openAgenda() },
+                            restoreKey = restoreKey, autoFocus = contentFocus
+                        )
+                        NavItem.AGENDA -> CalendarScreen(
+                            agenda = agenda,
+                            onRange = agendaVm::setCalendarRange,
+                            onDay = agendaVm::setCalendarDay,
+                            onCompetition = agendaVm::setCalendarCompetition,
+                            onRefresh = { agendaVm.load(force = true) },
+                            onOpenEvent = { e, key -> push(Route.Event(e.id, "Agenda deportiva"), key) },
+                            onWatch = ::watch,
+                            back = null,
                             restoreKey = restoreKey, autoFocus = contentFocus
                         )
                         NavItem.CHANNELS -> ChannelsScreen(
@@ -280,7 +303,7 @@ fun MiVisorApp(vm: MainViewModel) {
                         onDay = agendaVm::setCalendarDay,
                         onCompetition = agendaVm::setCalendarCompetition,
                         onRefresh = { agendaVm.load(force = true) },
-                        onOpenEvent = { e, key -> push(Route.Event(e.id, "Calendario"), key) },
+                        onOpenEvent = { e, key -> push(Route.Event(e.id, "Agenda deportiva"), key) },
                         onWatch = ::watch,
                         back = backLabelFor(root) to { pop() },
                         restoreKey = restoreKey, autoFocus = contentFocus

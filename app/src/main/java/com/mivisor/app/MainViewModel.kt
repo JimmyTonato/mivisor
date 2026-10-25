@@ -12,6 +12,7 @@ import com.mivisor.app.data.InvalidPayloadException
 import com.mivisor.app.data.NotCachedException
 import com.mivisor.app.data.PayloadDecoder
 import com.mivisor.app.data.PlaybackHistoryStore
+import com.mivisor.app.data.RefreshPolicy
 import com.mivisor.app.data.RawCache
 import com.mivisor.app.data.SourceStore
 import com.mivisor.app.data.StreamRepository
@@ -55,7 +56,9 @@ data class ProviderState(
     val offline: Boolean = false,
     val failedRefs: Int = 0,
     /** Abierto con "Abrir" sin guardarlo: desaparece al cerrar MiVisor. */
-    val transient: Boolean = false
+    val transient: Boolean = false,
+    /** Última actualización fallida mientras se muestran los datos anteriores. */
+    val lastFailure: UiError? = null
 ) {
     val id: String get() = source.id
     val name: String get() = source.name
@@ -110,6 +113,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allChannels: StateFlow<List<Channel>> = _allChannels.asStateFlow()
 
     private val jobs = HashMap<String, Job>()
+    private val lastCheck = HashMap<String, Long>()
     private val limiter = Semaphore(3)
     private var groupJob: Job? = null
     private var transient: List<ProviderState> = emptyList()
@@ -124,10 +128,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun select(providerId: String?) = _ui.update { it.copy(selected = providerId) }
 
-    /** Actualiza todos los proveedores (o uno). */
+    /** "Actualizar": fuerza la descarga de todos los proveedores (o de uno). */
     fun refresh(providerId: String? = null) {
         val list = _ui.value.providers.orEmpty().filter { providerId == null || it.id == providerId }
-        list.forEach { load(it.source, force = true) }
+        list.forEach { load(it.source, force = true, userForced = true) }
+    }
+
+    /**
+     * Comprobación automática (al abrir MiVisor, al volver a ella y al entrar en Canales): solo los proveedores
+     * con copia vieja o fallida, y sin repetir si se comprobó hace poco. Usa la caché si sigue fresca.
+     */
+    fun refreshStale() {
+        val now = System.currentTimeMillis()
+        _ui.value.providers.orEmpty()
+            .filter { p -> RefreshPolicy.shouldCheck(p.updatedAt, lastCheck[p.id] ?: 0L, now, p.loading || jobs[p.id]?.isActive == true) }
+            .forEach { load(it.source, force = false) }
     }
 
     /** "Abrir": el código se carga sin guardarlo y queda seleccionado. */
@@ -212,14 +227,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         regroup()
     }
 
-    private fun load(source: SourceProfile, force: Boolean) {
+    private fun load(source: SourceProfile, force: Boolean, userForced: Boolean = false) {
         jobs[source.id]?.cancel()
+        lastCheck[source.id] = System.currentTimeMillis()
         jobs[source.id] = viewModelScope.launch {
-            limiter.withPermit { loadNow(source, force) }
+            limiter.withPermit { loadNow(source, force, userForced) }
         }
     }
 
-    private suspend fun loadNow(source: SourceProfile, force: Boolean) {
+    private suspend fun loadNow(source: SourceProfile, force: Boolean, userForced: Boolean) {
         val code = source.code
         updateProvider(source.id) { it.copy(loading = it.catalog == null, error = null) }
         _ui.update { it.copy(refreshing = true) }
@@ -246,8 +262,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 throw e
             } catch (e: Exception) {
                 val hasContent = _ui.value.provider(source.id)?.catalog != null
-                if (hasContent && e !is CodeNotFoundException) updateProvider(source.id) { it.copy(loading = false, offline = true) }
-                else updateProvider(source.id) { it.copy(loading = false, catalog = null, error = errorFor(e)) }
+                if (hasContent) {
+                    // Fallo con datos previos: se conservan los últimos válidos (la lista no se vacía).
+                    updateProvider(source.id) { it.copy(loading = false, offline = true, lastFailure = errorFor(e)) }
+                    if (userForced) toast("No se pudo actualizar «${source.name}»: se mantienen los últimos canales")
+                } else {
+                    updateProvider(source.id) { it.copy(loading = false, catalog = null, error = errorFor(e)) }
+                }
             }
         } finally {
             _ui.update { s -> s.copy(refreshing = s.providers.orEmpty().any { it.loading } || jobs.values.count { it.isActive } > 1) }
@@ -257,7 +278,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun publish(id: String, result: StreamRepository.LoadResult) {
         val catalog = withContext(Dispatchers.Default) { CatalogBuilder.build(result.items) }
         updateProvider(id) {
-            it.copy(catalog = catalog, loading = false, updatedAt = result.savedAt, offline = result.offline, failedRefs = result.failedRefs, error = null)
+            it.copy(catalog = catalog, loading = false, updatedAt = result.savedAt, offline = result.offline, failedRefs = result.failedRefs,
+                error = null, lastFailure = if (result.offline) it.lastFailure else null)
         }
         regroup()
     }

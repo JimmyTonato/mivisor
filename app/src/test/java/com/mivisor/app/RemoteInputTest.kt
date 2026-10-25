@@ -316,6 +316,129 @@ class RemoteInputTest {
         scope.cancel()
     }
 
+
+    // ---------------------------------------------------------------- Editar con móvil (sesión EDIT)
+
+    private fun editServer(got: MutableList<Pair<String, String>>) =
+        MobileInputServer(InetAddress.getByName("127.0.0.1"), clock, onFields = { t, c -> got += t to c }) { }
+
+    private fun postEdit(srv: MobileInputServer, token: String, body: String) =
+        srv.route(MobileInputServer.Request("POST", "/edit/$token/send", emptyMap(), body.toByteArray(Charsets.UTF_8)))
+
+    private fun editJson(title: String, code: String) =
+        "{\"title\":" + com.google.gson.Gson().toJson(title) + ",\"code\":" + com.google.gson.Gson().toJson(code) + "}"
+
+    @Test fun editPageIsPrefilledWithCurrentFormValues() {
+        val srv = editServer(mutableListOf())
+        val s = RemoteSession.create(RemoteSession.Mode.EDIT, now).apply { heading = "Editar proveedor"; title = "DAZN F1"; code = "dazn-f1" }
+        srv.session = s
+        val page = String(srv.route(MobileInputServer.Request("GET", "/edit/${s.token}", emptyMap(), ByteArray(0))).body, Charsets.UTF_8)
+        assertTrue(page.contains("value=\"DAZN F1\""))
+        assertTrue(page.contains(">dazn-f1</textarea>"))
+        assertTrue(page.contains("ENVIAR AL TELEVISOR") && page.contains("Título") && page.contains("Código"))
+        // Los valores del formulario se escapan (nunca se interpretan como HTML).
+        s.title = "\"><script>x</script>"
+        val evil = String(srv.route(MobileInputServer.Request("GET", "/edit/${s.token}", emptyMap(), ByteArray(0))).body, Charsets.UTF_8)
+        assertFalse(evil.contains("<script>x</script>"))
+    }
+
+    @Test fun editAcceptsSeveralSendsDuringSession() {
+        val got = mutableListOf<Pair<String, String>>()
+        val srv = editServer(got)
+        val s = RemoteSession.create(RemoteSession.Mode.EDIT, now)
+        srv.session = s
+        assertEquals(200, postEdit(srv, s.token, editJson("DAZN F1", "dazn-f")).status)
+        now += 60_000
+        assertEquals(200, postEdit(srv, s.token, editJson("DAZN F1", "dazn-f1")).status)        // corrección
+        now += 60_000
+        val third = postEdit(srv, s.token, editJson("DAZN Fórmula 1", "dazn-f1"))
+        assertEquals(200, third.status)
+        assertTrue(String(third.body).contains("\"n\":3"))
+        assertEquals(listOf("DAZN F1" to "dazn-f", "DAZN F1" to "dazn-f1", "DAZN Fórmula 1" to "dazn-f1"), got)
+        // La página se reabre con lo último enviado.
+        assertEquals("DAZN Fórmula 1", s.title)
+    }
+
+    @Test fun editExpiresAfterFiveMinutes() {
+        val got = mutableListOf<Pair<String, String>>()
+        val srv = editServer(got)
+        val s = RemoteSession.create(RemoteSession.Mode.EDIT, now)
+        srv.session = s
+        assertEquals(200, postEdit(srv, s.token, editJson("A", "a")).status)
+        now += RemoteSession.DEFAULT_TTL_MS
+        assertEquals(410, postEdit(srv, s.token, editJson("B", "b")).status)
+        val page = srv.route(MobileInputServer.Request("GET", "/edit/${s.token}", emptyMap(), ByteArray(0)))
+        assertEquals(410, page.status)
+        assertTrue(String(page.body, Charsets.UTF_8).contains("Genera un nuevo QR desde MiVisor"))
+        assertEquals(1, got.size)
+    }
+
+    @Test fun editRejectsInvalidWrongModeAndOversize() {
+        val got = mutableListOf<Pair<String, String>>()
+        val srv = editServer(got)
+        val s = RemoteSession.create(RemoteSession.Mode.EDIT, now)
+        srv.session = s
+        assertEquals(400, postEdit(srv, s.token, "{\"title\":\"x\"}").status)          // falta el código
+        assertEquals(400, postEdit(srv, s.token, "{\"title\":1,\"code\":\"a\"}").status)
+        assertEquals(413, postEdit(srv, s.token, editJson("t".repeat(MobileInputServer.MAX_TITLE_BYTES + 1), "a")).status)
+        assertEquals(413, postEdit(srv, s.token, editJson("t", "c".repeat(MobileInputServer.MAX_TEXT_BYTES + 1))).status)
+        assertEquals(410, postEdit(srv, "otro", editJson("t", "c")).status)
+        assertEquals(405, srv.route(MobileInputServer.Request("GET", "/edit/${s.token}/send", emptyMap(), ByteArray(0))).status)
+        // Una sesión de "pegar un texto" no acepta envíos de edición, ni al revés.
+        val input = RemoteSession.create(RemoteSession.Mode.INPUT, now)
+        srv.session = input
+        assertEquals(410, postEdit(srv, input.token, editJson("t", "c")).status)
+        srv.session = s
+        assertEquals(410, post(srv, s.token, json("x")).status)
+        assertTrue(got.isEmpty())
+        // Sin código de título: se acepta (título vacío).
+        assertEquals(200, postEdit(srv, s.token, "{\"code\":\"solo-codigo\"}").status)
+        assertEquals(listOf("" to "solo-codigo"), got)
+    }
+
+    @Test fun editSessionHasSendLimit() {
+        val s = RemoteSession.create(RemoteSession.Mode.EDIT, now)
+        repeat(RemoteSession.MAX_EDITS) { assertTrue(s.acceptEdit(s.token, now)) }
+        assertFalse(s.acceptEdit(s.token, now))
+        assertFalse(RemoteSession.create(RemoteSession.Mode.INPUT, now).let { it.acceptEdit(it.token, now) })
+    }
+
+    // Extremo a extremo con sockets reales: varios envíos, el servidor sigue vivo, el formulario no se guarda solo.
+    @Test fun editEndToEndOverLocalSocket() {
+        val m = manager()
+        m.startEdit("Editar proveedor", "DAZN F1", "dazn")
+        val w = m.state.value as RemoteState.Waiting
+        assertTrue(w.url.contains("/edit/"))
+        val (status, page) = getHttp(w.url)
+        assertEquals(200, status)
+        assertTrue(page.contains("value=\"DAZN F1\"") && page.contains(">dazn</textarea>"))
+        // La TV cambia el formulario: quien recargue la página lo verá.
+        m.updateFields("DAZN F1 HD", "dazn")
+        assertTrue(getHttp(w.url).second.contains("value=\"DAZN F1 HD\""))
+        assertEquals(200, postHttp(w.url + "/send", editJson("DAZN F1", "dazn-f1")).first)
+        assertEquals(1, waitFor { m.edits.value }.seq)
+        assertEquals(200, postHttp(w.url + "/send", editJson("DAZN F1", "dazn-f1-hd")).first)
+        val second = waitFor { m.edits.value?.takeIf { it.seq == 2 } }
+        assertEquals("dazn-f1-hd", second.code)
+        assertTrue(m.isServerRunning)                                           // no se invalida tras el primer envío
+        assertTrue(m.state.value is RemoteState.Waiting)
+        m.cancel()                                                              // cerrar el formulario
+        assertFalse(m.isServerRunning)
+        assertNull(m.edits.value)
+        scope.cancel()
+    }
+
+    @Test fun editExpiryStopsServer() {
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val m = MobileInputManager(scope, lanAddress = { NetCandidate("lo", "127.0.0.1") }, ttlMs = 300)
+        m.startEdit("Editar", "a", "b")
+        val w = m.state.value as RemoteState.Waiting
+        waitFor { if (m.state.value == RemoteState.Expired) true else null }
+        assertFalse(m.isServerRunning)
+        assertTrue(runCatching { postHttp(w.url + "/send", editJson("x", "y")) }.isFailure)
+        scope.cancel()
+    }
+
     // ------------------------------------------------------------------ utilidades
 
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

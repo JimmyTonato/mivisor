@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.mivisor.app.remote.AndroidLan
 import com.mivisor.app.remote.MobileInputManager
 import com.mivisor.app.remote.RemoteState
+import com.mivisor.app.remote.FieldEdit
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -20,9 +21,12 @@ class RemoteInputViewModel(application: Application) : AndroidViewModel(applicat
         log = { Log.i("MiVisor/Remote", it) }          // mensajes fijos: nunca el texto ni el token
     )
     val state: StateFlow<RemoteState> = manager.state
+    val edits: StateFlow<FieldEdit?> = manager.edits
 
     fun startInput() = manager.startInput()
     fun startShow(text: String) = manager.startShow(text)
+    fun startEdit(heading: String, title: String, code: String) = manager.startEdit(heading, title, code)
+    fun updateFields(title: String, code: String) = manager.updateFields(title, code)
     fun consume() = manager.consume()
     fun cancel() = manager.cancel()
 

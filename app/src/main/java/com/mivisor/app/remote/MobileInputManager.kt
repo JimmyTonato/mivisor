@@ -10,6 +10,9 @@ import kotlinx.coroutines.launch
 import java.net.InetAddress
 
 /** Lo que muestra el formulario mientras se usa el móvil. */
+/** Envío de "Editar con móvil": título y código tal cual llegan (sin guardar nada). */
+data class FieldEdit(val title: String, val code: String, val seq: Int)
+
 sealed class RemoteState {
     object Idle : RemoteState()
     class Waiting(val url: String, val qr: QrMatrix, val expiresAt: Long, val mode: RemoteSession.Mode) : RemoteState()
@@ -36,7 +39,12 @@ class MobileInputManager(
     private val _state = MutableStateFlow<RemoteState>(RemoteState.Idle)
     val state: StateFlow<RemoteState> = _state.asStateFlow()
 
+    private val _edits = MutableStateFlow<FieldEdit?>(null)
+    /** "Editar con móvil": último envío recibido (seq crece en cada envío de la sesión). */
+    val edits: StateFlow<FieldEdit?> = _edits.asStateFlow()
+
     private var server: MobileInputServer? = null
+    private var session: RemoteSession? = null
     private var expiryJob: Job? = null
 
     /** "Usar móvil": nueva sesión de un solo uso para rellenar el campo. */
@@ -44,6 +52,21 @@ class MobileInputManager(
 
     /** Mostrar un texto en el móvil (registro de errores), de solo lectura. */
     fun startShow(text: String) = start(RemoteSession.Mode.SHOW, text)
+
+    /**
+     * "Editar con móvil": sesión de 5 min que admite varios envíos de título + código.
+     * La página del móvil se abre con los valores actuales del formulario ([updateFields] los mantiene al día).
+     */
+    fun startEdit(heading: String, title: String, code: String) {
+        _edits.value = null
+        start(RemoteSession.Mode.EDIT, null)
+        session?.let { it.heading = heading; it.title = title; it.code = code }
+    }
+
+    /** El formulario de la TV ha cambiado: quien abra (o recargue) la página verá estos valores. */
+    fun updateFields(title: String, code: String) {
+        session?.takeIf { it.mode == RemoteSession.Mode.EDIT }?.let { it.title = title; it.code = code }
+    }
 
     private fun start(mode: RemoteSession.Mode, shown: String?) {
         stop()
@@ -54,7 +77,12 @@ class MobileInputManager(
             return
         }
         var owner: MobileInputServer? = null
-        val srv = MobileInputServer(InetAddress.getByName(lan.address), clock) { text ->
+        var seq = 0
+        val srv = MobileInputServer(InetAddress.getByName(lan.address), clock, onFields = { title, code ->
+            seq++
+            log("Remote edit received")                          // nunca el contenido
+            _edits.value = FieldEdit(title, code, seq)            // la sesión sigue abierta: se puede volver a enviar
+        }) { text ->
             log("Remote input received")                       // nunca el contenido
             _state.value = RemoteState.Received(text)
             // Un solo uso: el token ya no vale. Se apaga el servidor tras dejar que el móvil reciba el "OK"
@@ -75,7 +103,8 @@ class MobileInputManager(
         val session = RemoteSession.create(mode, clock(), ttlMs, shown)
         srv.session = session
         server = srv
-        val path = if (mode == RemoteSession.Mode.INPUT) "pair" else "log"
+        this.session = session
+        val path = when (mode) { RemoteSession.Mode.INPUT -> "pair"; RemoteSession.Mode.SHOW -> "log"; RemoteSession.Mode.EDIT -> "edit" }
         val url = "http://${lan.address}:$port/$path/${session.token}"
         _state.value = RemoteState.Waiting(url, QrGenerator.encode(url), session.expiresAt, mode)
         log("Remote input: session started on ${lan.interfaceName} port $port")
@@ -96,6 +125,7 @@ class MobileInputManager(
 
     /** Cancelar o salir del formulario: invalida el token, cierra el servidor y no toca el campo. */
     fun cancel() {
+        _edits.value = null
         stop()
         _state.value = RemoteState.Idle
     }
@@ -111,5 +141,6 @@ class MobileInputManager(
         expiryJob = null
         server?.stop()
         server = null
+        session = null
     }
 }

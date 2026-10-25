@@ -290,6 +290,19 @@ class RedesignTest {
         assertEquals("No instalada" to "Cómo instalar", warp(WarpPhase.NOT_INSTALLED).let { it.status to it.actionLabel })
     }
 
+    // ---------------------------------------------------------------- Actualización de proveedores
+
+    @Test fun providerRefreshPolicy() {
+        val min = 60_000L
+        val t = 10_000_000L
+        assertTrue(com.mivisor.app.data.RefreshPolicy.shouldCheck(0L, 0L, t, loading = false))          // nunca descargado
+        assertFalse(com.mivisor.app.data.RefreshPolicy.shouldCheck(t - 5 * min, 0L, t, loading = false)) // caché fresca: no se descarga
+        assertTrue(com.mivisor.app.data.RefreshPolicy.shouldCheck(t - 11 * min, 0L, t, loading = false)) // copia vieja
+        assertFalse(com.mivisor.app.data.RefreshPolicy.shouldCheck(t - 11 * min, t - min, t, loading = false))  // comprobado hace 1 min
+        assertTrue(com.mivisor.app.data.RefreshPolicy.shouldCheck(t - 11 * min, t - 3 * min, t, loading = false))
+        assertFalse(com.mivisor.app.data.RefreshPolicy.shouldCheck(0L, 0L, t, loading = true))          // ya se está descargando
+    }
+
     // ---------------------------------------------------------------- Historial de reproducciones
 
     @Test fun playbackHistory() {

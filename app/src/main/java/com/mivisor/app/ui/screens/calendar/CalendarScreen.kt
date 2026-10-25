@@ -101,7 +101,7 @@ fun CalendarScreen(
 
     Column(Modifier.fillMaxSize().padding(start = if (layout.compact) layout.gutter else 6.dp, end = layout.gutter)) {
         PageHeader(
-            title = "Calendario",
+            title = "Agenda deportiva",
             subtitle = "Consulta los próximos encuentros y descubre en qué canales se emiten.",
             meta = agenda.agenda?.let { "Actualizado ${if (agenda.fetchedAt > 0) relativeTime(agenda.fetchedAt) else "—"}" + (if (agenda.offline) " · sin conexión" else "") },
             back = back
@@ -258,7 +258,7 @@ private fun DetailPanel(agenda: AgendaUi, event: AgendaEvent, onWatch: () -> Uni
         }
         PrimaryButton("Ver ahora", onWatch, Modifier.fillMaxWidth(), height = 34.dp)
         SecondaryButton(if (sources > 1) "Ver $sources fuentes" else "Ver canales", onChannels, Modifier.fillMaxWidth(), icon = R.drawable.ic_tv, height = 34.dp)
-        Txt("Información", NeonType.H3.copy(fontSize = 13.sp), modifier = Modifier.padding(top = 4.dp))
+        Txt("Información del partido", NeonType.H3.copy(fontSize = 13.sp), modifier = Modifier.padding(top = 4.dp))
         InfoLine(R.drawable.ic_calendar, "Fecha", "${dayTitle(event.startMillis)}, ${eventTimeText(event)}")
         InfoLine(R.drawable.ic_trophy, "Competición", event.competition ?: sportLabel(event.sport))
         InfoLine(R.drawable.ic_tv, "Emisión", channels.take(3).joinToString(", ") { it.name }.ifEmpty { "Por confirmar" })

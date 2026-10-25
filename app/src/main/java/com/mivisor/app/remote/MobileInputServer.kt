@@ -20,6 +20,8 @@ import java.util.concurrent.Executors
  *   GET  /pair/<token>       página para pegar el código        (sesión INPUT)
  *   POST /pair/<token>/send  recibe {"text": "…"} (≤ 16 KB)     (sesión INPUT, un solo uso)
  *   GET  /log/<token>        muestra un texto de solo lectura   (sesión SHOW: registro de errores)
+ *   GET  /edit/<token>       página "Editar con móvil" con título y código actuales del formulario (sesión EDIT)
+ *   POST /edit/<token>/send  recibe {"title": "…", "code": "…"}; VARIOS envíos hasta que caduca (5 min)
  * Todo lo demás: 404/405. No sirve ficheros, no ejecuta nada, no tiene endpoints de administración
  * y nunca registra el texto recibido ni el token.
  *
@@ -28,6 +30,8 @@ import java.util.concurrent.Executors
 class MobileInputServer(
     private val bindAddress: InetAddress,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** EDIT: título y código enviados desde el móvil (nunca se registran ni se guardan aquí). */
+    private val onFields: (title: String, code: String) -> Unit = { _, _ -> },
     private val onText: (String) -> Unit
 ) {
     @Volatile var session: RemoteSession? = null
@@ -135,6 +139,29 @@ class MobileInputServer(
                     else -> html(410, MobilePages.unavailable())
                 }
             }
+            parts.size == 2 && parts[0] == "edit" -> {
+                if (r.method != "GET") return text(405, "Método no permitido")
+                when (current?.takeIf { it.mode == RemoteSession.Mode.EDIT }?.check(parts[1], clock())) {
+                    RemoteSession.Check.OK -> html(200, MobilePages.edit(current.heading, current.title, current.code, current.expiresAt - clock()))
+                    else -> html(410, MobilePages.unavailable())
+                }
+            }
+            parts.size == 3 && parts[0] == "edit" && parts[2] == "send" -> {
+                if (r.method != "POST") return text(405, "Método no permitido")
+                val s = current?.takeIf { it.mode == RemoteSession.Mode.EDIT }
+                    ?: return json(410, """{"ok":false,"error":"expired"}""")
+                if (s.check(parts[1], clock()) != RemoteSession.Check.OK) return json(410, """{"ok":false,"error":"expired"}""")
+                val fields = parseFields(r.body) ?: return json(400, """{"ok":false,"error":"invalid"}""")
+                val (title, code) = fields
+                if (title.toByteArray(Charsets.UTF_8).size > MAX_TITLE_BYTES || code.toByteArray(Charsets.UTF_8).size > MAX_TEXT_BYTES) {
+                    return json(413, """{"ok":false,"error":"too_large"}""")
+                }
+                if (!s.acceptEdit(parts[1], clock())) return json(410, """{"ok":false,"error":"expired"}""")
+                s.title = title
+                s.code = code
+                onFields(title, code)                   // solo rellena el formulario: guardar sigue siendo cosa de la TV
+                json(200, """{"ok":true,"n":${s.editCount}}""")
+            }
             else -> text(404, "No encontrado")
         }
     }
@@ -142,6 +169,15 @@ class MobileInputServer(
     private fun parseText(body: ByteArray): String? = runCatching {
         val o = JsonParser.parseString(String(body, Charsets.UTF_8)).asJsonObject
         o.get("text")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+    }.getOrNull()
+
+    /** {"title": "...", "code": "..."}: ambos texto; el título puede ir vacío. */
+    private fun parseFields(body: ByteArray): Pair<String, String>? = runCatching {
+        val o = JsonParser.parseString(String(body, Charsets.UTF_8)).asJsonObject
+        fun field(name: String): String? = o.get(name)?.let { if (it.isJsonPrimitive && it.asJsonPrimitive.isString) it.asString else null }
+        val code = field("code") ?: return@runCatching null
+        val title = if (o.has("title")) field("title") ?: return@runCatching null else ""
+        title to code
     }.getOrNull()
 
     private class TooLarge : IOException()
@@ -203,6 +239,8 @@ class MobileInputServer(
         /** El JSON lleva comillas y escapes: algo de margen sobre el texto. */
         const val MAX_BODY_BYTES = 24 * 1024
         const val MAX_HEADER_BYTES = 8 * 1024
+        /** Título del formulario (nombre del proveedor). */
+        const val MAX_TITLE_BYTES = 1024
         const val SOCKET_TIMEOUT_MS = 5_000
         private val REASONS = mapOf(200 to "OK", 400 to "Bad Request", 404 to "Not Found", 405 to "Method Not Allowed",
             410 to "Gone", 413 to "Payload Too Large")

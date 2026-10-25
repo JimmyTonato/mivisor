@@ -283,7 +283,7 @@ Se usa el **mismo protocolo** que `MiVisor-WARP-TestClient-1.2` (`WarpControlCon
 
 ## Interfaz (v11, según el handoff de UX)
 
-Navegación lateral: **Inicio · En directo · Canales · Historial · Ajustes**. Abajo, **Servicios de reproducción**
+Navegación lateral: **Inicio · En directo · Agenda · Canales · Historial · Ajustes**. Abajo, **Servicios de reproducción**
 (Ace Stream y VPN/WARP) con su estado real: discretos cuando todo va bien, con el botón en la propia fila cuando hay que actuar
 (Iniciar, Conectar, Autorizar, Configurar, Reintentar, Cómo instalar). OK en una fila correcta abre el panel rápido.
 
@@ -309,31 +309,33 @@ Navegación lateral: **Inicio · En directo · Canales · Historial · Ajustes**
   todos los estados sin tocar nada real, y las fuentes de datos de la agenda) · Canales · Datos · Sistema (registro de errores).
 - Sin `focusRestorer` en listas anidadas (sospechoso del cierre al pulsar ▶).
 
-## Escribir con el móvil (QR)
+## Editar con móvil (QR)
 
-En el formulario de **Abrir un código / Nueva categoría / Editar categoría**, debajo del campo *Código*:
+En el formulario **Añadir / Editar proveedor** (Título + Código), columna derecha: **Editar con móvil**.
 
-- **Escribir con mando**: lleva el foco al campo (como siempre).
-- **Usar móvil / QR**: muestra un QR. Al escanearlo, el móvil abre una página servida **por el propio televisor**
-  dentro de la red local; se pega el código y se pulsa *ENVIAR AL TELEVISOR*.
-  - El texto **sustituye** lo que hubiera en el campo y aparece "Texto recibido desde el móvil". **No se guarda solo**:
-    hay que pulsar Guardar/Abrir.
-  - Sesión temporal: token aleatorio (SecureRandom, 192 bits), **un solo uso**, caduca a los **5 min**
-    ("La sesión ha caducado" → *Generar nuevo QR*; el móvil ve "Esta sesión ya no está disponible.").
-  - Atrás o *Cancelar* cierran el QR y anulan la sesión; salir del formulario también.
-  - El servidor HTTP solo existe mientras hay una sesión: puerto 8765 (o 8766…8774, o uno libre; el QR lleva el real),
-    escuchando solo en la IP de la LAN. Nunca usa la IP de WARP/VPN ni 127.0.0.1. TV por cable + móvil por Wi-Fi funciona
-    si están en la misma red.
-  - Solo `GET /pair/<token>`, `POST /pair/<token>/send` (`{"text": …}`, máx. 16 KB) y `GET /log/<token>` (registro de errores,
-    solo lectura). Nada más: no sirve ficheros ni tiene administración. Sin backend externo; el QR se genera en el televisor
-    (Nayuki QR Code generator, MIT, en `io/nayuki/qrcodegen`).
-  - **Los códigos recibidos no se registran en ningún log.**
-  - Si no se conecta: "Asegúrate de que ambos dispositivos están en la misma red y que la red permite comunicación entre
-    dispositivos" (algunas redes de invitados aíslan los equipos).
-- Permisos: `INTERNET` y `ACCESS_NETWORK_STATE` (para distinguir Wi-Fi/Ethernet de la VPN). Sin servicio en primer plano.
+- MiVisor genera un QR temporal. El móvil abre una página servida **por el propio televisor** en la red local
+  (móvil → red local → TV; sin servidor externo ni Internet) con los mismos campos: **Título** y **Código**, ya rellenos con lo que
+  tenga el formulario de la TV en ese momento.
+- **ENVIAR AL TELEVISOR** actualiza al instante los dos campos del formulario. **No guarda**: el usuario revisa en la TV y pulsa
+  Guardar (o Guardar y abrir) cuando esté conforme.
+- La sesión dura **5 minutos** y admite **varios envíos** (corregir → reenviar → corregir…; máx. 100). No se invalida tras el primero.
+- Al caducar: se invalida el token, se apaga el servidor y el móvil muestra
+  "La sesión ha caducado. Genera un nuevo QR desde MiVisor". En la TV: "La sesión ha caducado" + *Generar nuevo QR*.
+- Cerrar el QR, cancelar o salir del formulario también invalidan la sesión.
+- Seguridad: token aleatorio de 192 bits, solo la IP de la LAN (nunca la de WARP/VPN ni 127.0.0.1), puerto 8765 o siguiente
+  (el QR lleva el real), cuerpo máximo 24 KB (título ≤ 1 KB, código ≤ 16 KB), valores escapados en la página.
+  **Los títulos y códigos recibidos no se registran en ningún log.**
+- Rutas: `GET /edit/<token>`, `POST /edit/<token>/send` (`{"title","code"}`). Siguen existiendo `/pair/…` (un solo envío)
+  y `/log/…` (registro de errores en el móvil).
+- Permisos: `INTERNET` y `ACCESS_NETWORK_STATE`. Sin servicio en primer plano.
 
-Código: `remote/` (RemoteSession, MobileInputServer, MobilePages, LanAddress, AndroidLan, QrGenerator, MobileInputManager,
-RemoteFill), `RemoteInputViewModel.kt`, `ui/components/RemotePanel.kt`. Pruebas: `RemoteInputTest`.
+## Actualización de canales
+
+- Al abrir MiVisor, al volver a ella y al entrar en **Canales** se comprueba cada proveedor: si su copia tiene más de 10 min se
+  vuelve a descargar (si no, se usa la caché). Como mucho una comprobación cada 2 min por proveedor (`data/RefreshPolicy`).
+- Botón **Actualizar** (TV y móvil): fuerza la descarga del proveedor seleccionado o de todos.
+- Si falla, se **conservan los últimos datos válidos**: la lista no se vacía. La cabecera dice
+  "no se pudo actualizar: se muestran los últimos datos de hace…" y el proveedor lleva un punto ámbar.
 
 ## Registro de errores
 

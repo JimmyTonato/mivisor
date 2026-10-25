@@ -44,10 +44,11 @@ import com.mivisor.app.ui.neon.Neon
 import com.mivisor.app.ui.neon.NeonType
 import com.mivisor.app.ui.neon.Spinner
 
-/** Navegación principal (5 secciones). Calendario y competiciones se abren desde Inicio y En directo. */
+/** Navegación principal. La Agenda deportiva (calendario) también se abre desde Inicio, competiciones y En directo. */
 enum class NavItem(val label: String, @DrawableRes val icon: Int) {
     HOME("Inicio", R.drawable.ic_home),
     LIVE("En directo", R.drawable.ic_live),
+    AGENDA("Agenda", R.drawable.ic_calendar),
     CHANNELS("Canales", R.drawable.ic_tv),
     HISTORY("Historial", R.drawable.ic_history),
     SETTINGS("Ajustes", R.drawable.ic_settings)
@@ -80,8 +81,8 @@ fun Sidebar(
             .focusGroup()
     ) {
         Logo()
-        Box(Modifier.height(16.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.height(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             NavItem.values().forEach { item ->
                 NavRow(
                     item = item,
@@ -127,7 +128,7 @@ fun Logo(modifier: Modifier = Modifier, compact: Boolean = false) {
 private fun NavRow(item: NavItem, selected: Boolean, badge: String?, onClick: () -> Unit, modifier: Modifier) {
     TvClickable(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth().height(40.dp),
+        modifier = modifier.fillMaxWidth().height(38.dp),
         shape = RoundedCornerShape(12.dp),
         color = if (selected) Neon.PanelHi else Color.Transparent,
         focusedColor = Neon.PanelHi,
