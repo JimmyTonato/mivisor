@@ -47,7 +47,11 @@ object AceLog {
         val engineBefore: String,
         /** ¿Arrancó MiVisor el motor (y cuándo)? La app antigua nunca lo hace. */
         val engineOrigin: String? = null,
-        val aceAutoStart: Boolean = false
+        val aceAutoStart: Boolean = false,
+        /** Antigüedad de la lista del proveedor (los IDs de algunas listas rotan): minutos, ¿copia sin conexión?, último fallo. */
+        val listAgeMinutes: Long? = null,
+        val listOffline: Boolean = false,
+        val listFailure: String? = null
     )
 
     /** Texto de una apertura (puro: se prueba en la JVM). */
@@ -63,6 +67,11 @@ object AceLog {
                 else -> "¡DISTINTO al enviado!"
             }}")
             appendLine("Grupo del canal: ${l.group ?: "—"}")
+            l.listAgeMinutes?.let { age ->
+                appendLine("Lista del proveedor: descargada hace ${if (age < 60) "$age min" else "${age / 60} h ${age % 60} min"}" +
+                    (if (l.listOffline) " · COPIA GUARDADA (no se pudo actualizar)" else "") +
+                    (l.listFailure?.let { " · último fallo: $it" } ?: ""))
+            }
             appendLine("Envío: ${if (l.httpEngineMode) "URL HTTP del motor local (Ajustes)" else "Intent VIEW acestream:// + NEW_TASK (igual que MyLinksPaste)"}")
             appendLine("App que lo abre: ${l.targetPackage ?: "la decide el sistema"} — ${l.reason}")
             appendLine("Apps para acestream:// en esta TV: ${l.handlers.ifEmpty { listOf("ninguna") }.joinToString()}")

@@ -415,6 +415,20 @@ Nota: la "Comprobación con el motor" usa la API HTTP de Ace (`/ace/getstream`),
 Premium** ("To continue, you need to activate premium"). Sin Premium se indica así y no se toma como fallo del canal;
 abrir canales con `acestream://` (lo normal en MiVisor) no la usa.
 
+### Logs internos de Ace (opcional)
+
+Ace Stream guarda su log completo (`acestream.log`) en su carpeta privada (`Android/data/org.acestream.node/files/`
+en Android 10+), que ninguna otra app puede leer desde Android 11. Lo que Ace escribe en el **log del sistema**
+(etiquetas `AS/Player`, `AS/ContentStart`, `AS/Manager`, `AceStream/engine`…) sí se puede leer con `READ_LOGS`, que Android
+solo concede desde un ordenador, una vez:
+
+    adb shell pm grant com.mivisor.app android.permission.READ_LOGS
+
+Con el permiso, al volver a MiVisor tras abrir un canal Ace se añaden al Registro Ace Stream las líneas de Ace de ese intento
+(máx. 150: errores/avisos + las últimas), sin Content IDs, URLs ni IPs de peers (`diagnostics/AceSysLogFilter.kt`).
+Android 13+ pide confirmación en pantalla. Botón **Logs internos de Ace** en Registro de errores: estado e instrucciones
+(también al móvil por QR). Sin el permiso no cambia nada.
+
 Botón **Olvidar apps recordadas** en la misma pantalla. "Ver en el móvil (QR)" sirve para pasar el registro.
 
 ## Registro de errores

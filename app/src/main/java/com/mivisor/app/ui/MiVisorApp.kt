@@ -164,6 +164,7 @@ fun MiVisorApp(vm: MainViewModel) {
         if (ch.kind != ChannelKind.ACE) return
         val t = launcher.lastTrace ?: return
         val vpn = com.mivisor.app.diagnostics.NetState.vpnActive(context)
+        val provider = library.provider(ch.providerId)
         quick.logAce(com.mivisor.app.diagnostics.AceLog.entry(com.mivisor.app.diagnostics.AceLog.Launch(
             channel = ch.name, provider = ch.source, group = ch.group, storedUrl = ch.url, sentUri = t.sentUri,
             targetPackage = t.packageName, reason = t.reason, handlers = t.handlers, systemDefault = t.systemDefault,
@@ -171,7 +172,10 @@ fun MiVisorApp(vm: MainViewModel) {
             systemVpn = vpn, warp = services.warpStatus.phase.name.lowercase(),
             vpnAutoConnect = launcher.preferences.vpnAutoConnect,
             httpEngineMode = t.httpMode, engineBefore = quick.engineText(services.aceStatus),
-            engineOrigin = quick.engineOrigin(), aceAutoStart = launcher.preferences.aceAutoStart
+            engineOrigin = quick.engineOrigin(), aceAutoStart = launcher.preferences.aceAutoStart,
+            listAgeMinutes = provider?.updatedAt?.takeIf { it > 0 }?.let { (System.currentTimeMillis() - it).coerceAtLeast(0) / 60_000 },
+            listOffline = provider?.offline == true,
+            listFailure = provider?.lastFailure?.let { "${it.kind.name.lowercase()} (${it.title})" }
         )))
         aceLaunched = Triple(ch, System.currentTimeMillis(), vpn)
     }
@@ -241,7 +245,7 @@ fun MiVisorApp(vm: MainViewModel) {
                         val now = System.currentTimeMillis()
                         val away = (now - at) / 1000
                         val vpnNow = com.mivisor.app.diagnostics.NetState.vpnActive(context)
-                        quick.describeEngine { engine -> quick.logAce(com.mivisor.app.diagnostics.AceLog.returned(away, engine, vpnNow)) }
+                        quick.afterAceReturn(at, now, away, vpnNow)
                         if (com.mivisor.app.diagnostics.AceLog.shouldAsk(at, now)) { aceAnswered = null; aceAsk = Triple(ch, away, vpn) }
                     }
                     quick.onForeground()

@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -57,6 +58,7 @@ fun ErrorLogScreen(onBack: () -> Unit) {
     val reports = remember(reload) { CrashReporter.reports(context) }
     var selected by remember { mutableStateOf<String?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
+    var aceLogsHelp by remember { mutableStateOf(false) }
     val current = reports.firstOrNull { it.name == selected } ?: reports.firstOrNull()
     val text = remember(current?.name, reload) { current?.let { runCatching { it.readText() }.getOrNull() }.orEmpty() }
 
@@ -74,6 +76,10 @@ fun ErrorLogScreen(onBack: () -> Unit) {
                 NeonButton("Borrar registro", { confirmClear = true }, icon = R.drawable.ic_delete)
             }
             NeonButton("Actualizar", { reload++ }, icon = R.drawable.ic_refresh)
+            NeonButton(
+                if (com.mivisor.app.diagnostics.AceSysLog.granted(context)) "Logs internos de Ace: activados" else "Logs internos de Ace",
+                { aceLogsHelp = true }, icon = R.drawable.ic_bolt
+            )
             NeonButton("Olvidar apps recordadas", {
                 com.mivisor.app.player.PlayerPreferences(context).clearPreferredApps()
                 android.widget.Toast.makeText(context, "Se volverá a preguntar con qué app abrir cada enlace", android.widget.Toast.LENGTH_SHORT).show()
@@ -117,6 +123,23 @@ fun ErrorLogScreen(onBack: () -> Unit) {
             RemotePanel(remoteState, onCancel = { remote.cancel() }, onRetry = { remote.startShow(text) }, firstFocus = focus)
         }
     }
+    if (aceLogsHelp) {
+        val help = remember { aceLogsInstructions(context) }
+        val focus = remember { FocusRequester() }
+        TvDialog(title = "Logs internos de Ace Stream", onDismiss = { aceLogsHelp = false }, width = 640.dp, initialFocus = focus) {
+            Txt(
+                if (com.mivisor.app.diagnostics.AceSysLog.granted(context))
+                    "ACTIVADOS. Tras abrir un canal Ace y volver a MiVisor, el Registro Ace Stream incluye lo que Ace escribió durante el intento."
+                else "NO activados (falta el permiso de lectura de registros).",
+                NeonType.H3, maxLines = 3
+            )
+            Txt(help, NeonType.Small, color = Neon.Dim, maxLines = 30)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                NeonButton("Pasar al móvil (QR)", { aceLogsHelp = false; remote.startShow(help) }, icon = R.drawable.ic_share, modifier = Modifier.focusRequester(focus))
+                NeonButton("Cerrar", { aceLogsHelp = false })
+            }
+        }
+    }
     if (confirmClear) {
         ConfirmDialog(
             title = "Borrar registro de errores",
@@ -155,3 +178,23 @@ private fun dateOf(f: File): String {
     val (y, mo, d, h, mi, s) = m.destructured
     return "$d/$mo/$y $h:$mi:$s"
 }
+
+/** Instrucciones para activar los logs internos de Ace (texto que también se puede pasar al móvil). */
+private fun aceLogsInstructions(context: android.content.Context): String = """
+Por qué hace falta: Ace Stream guarda su log completo (acestream.log) en su carpeta privada, que ninguna otra app puede leer desde Android 11. Lo que Ace escribe en el log del sistema (AS/Player, AS/ContentStart…) sí se puede leer, pero Android solo da ese permiso desde un ordenador. Es una sola vez.
+
+1. En la TV/tablet: Ajustes → Opciones de desarrollador → activa la Depuración USB (o la Depuración inalámbrica / ADB por red).
+2. En el ordenador (con las herramientas "platform-tools" de Android): conecta por cable, o por red con
+   adb connect <IP de la TV>
+3. Ejecuta:
+   ${com.mivisor.app.diagnostics.AceSysLog.grantCommand(context)}
+4. Cierra MiVisor y vuelve a abrirlo. Android 13 o superior preguntará si MiVisor puede ver los registros del dispositivo: acepta.
+
+MiVisor guarda solo las líneas de Ace del intento (no las de otras apps), sin IDs, URLs ni IPs. Para quitarlo:
+   adb shell pm revoke ${context.packageName} android.permission.READ_LOGS
+
+Alternativa sin MiVisor (desde el ordenador, mientras pruebas el mismo canal en MiVisor y en la app antigua):
+   adb logcat -v time > ace_logcat.txt
+   adb pull /sdcard/Android/data/org.acestream.node/files/acestream.log
+(La segunda funciona en muchos dispositivos; es el log completo del motor: trackers, peers y errores.)
+""".trim()

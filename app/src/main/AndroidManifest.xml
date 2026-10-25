@@ -1,9 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Escribir con el móvil: saber qué red es Wi-Fi/Ethernet y cuál es la VPN (para no usar la IP de WARP). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!--
+      OPCIONAL (diagnóstico de Ace Stream): leer las líneas de Ace Stream (etiquetas AS/…, AceStream/…) del log
+      del sistema tras abrir un canal. Android SOLO lo concede si el usuario lo hace a mano desde un ordenador:
+        adb shell pm grant <paquete> android.permission.READ_LOGS
+      Sin él, MiVisor funciona igual y el Registro Ace Stream explica cómo activarlo. Android 13+ pide además
+      confirmación en pantalla. MiVisor guarda solo las líneas de Ace, limpias (sin IDs, URLs ni IPs).
+    -->
+    <uses-permission android:name="android.permission.READ_LOGS" tools:ignore="ProtectedPermissions" />
     <!--
       Control de la WARP modificada (com.cloudflare.onedotonedotonedotone). Es un permiso "signature":
       solo se concede si MiVisor está firmado con la MISMA clave que WARP (ver README → Servicios rápidos).

@@ -140,6 +140,22 @@ class QuickServicesViewModel(application: Application) : AndroidViewModel(applic
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { com.mivisor.app.diagnostics.AceLog.append(dir, text) }
     }
 
+    /**
+     * Al volver a MiVisor tras abrir un canal Ace: estado del motor y, si está concedido READ_LOGS, las líneas
+     * que Ace escribió en el log del sistema durante el intento. Todo en orden en el Registro Ace Stream.
+     */
+    fun afterAceReturn(from: Long, to: Long, away: Long, vpnNow: Boolean?) {
+        val app = getApplication<Application>()
+        val dir = aceLogDir
+        viewModelScope.launch {
+            val engine = engineText(ace.refresh())
+            val sys = com.mivisor.app.diagnostics.AceSysLog.capture(app, from, to)
+            val text = com.mivisor.app.diagnostics.AceLog.returned(away, engine, vpnNow) + "\n" +
+                (sys ?: "  📋 Log interno de Ace Stream: no activado (ver «Logs internos de Ace» en esta pantalla)\n")
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.mivisor.app.diagnostics.AceLog.append(dir, text) }
+        }
+    }
+
     /** Estado real del motor (get_version por HTTP; no lo arranca). */
     fun describeEngine(onDone: (String) -> Unit) {
         viewModelScope.launch {
