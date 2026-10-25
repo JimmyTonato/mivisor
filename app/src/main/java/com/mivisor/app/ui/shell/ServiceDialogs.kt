@@ -194,3 +194,45 @@ private fun StepLine(state: StepState, working: String, done: String) {
         Txt(if (state == StepState.DONE) done else working, NeonType.Body, color = if (state == StepState.DONE) Neon.Dim else Neon.Text)
     }
 }
+
+/** Resultado de "Comprobar si se reproduce": diferencia "motor abierto" de "stream llegando". */
+@Composable
+fun ProbeDialog(probe: com.mivisor.app.ProbeUi, onPlay: () -> Unit, onRetry: () -> Unit, onDismiss: () -> Unit) {
+    val first = remember { FocusRequester() }
+    val result = probe.result
+    val color = when (result?.verdict) {
+        com.mivisor.app.services.ProbeVerdict.STREAMING -> Ui.Green
+        com.mivisor.app.services.ProbeVerdict.PREBUFFERING_ONLY, com.mivisor.app.services.ProbeVerdict.NO_DATA -> Ui.Amber
+        null -> Neon.Cyan
+        else -> Neon.Red
+    }
+    TvDialog(title = "Comprobar stream", subtitle = probe.channelName, onDismiss = onDismiss, width = 520.dp, initialFocus = first) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (probe.running) Spinner(20.dp, Neon.Cyan) else Box(Modifier.size(12.dp).background(color, RoundedCornerShape(6.dp)))
+            Box(Modifier.width(12.dp))
+            Txt(
+                when (result?.verdict) {
+                    com.mivisor.app.services.ProbeVerdict.STREAMING -> "Se reproduce: llegan datos"
+                    com.mivisor.app.services.ProbeVerdict.PREBUFFERING_ONLY -> "Solo prebuffer: aún no llegan datos"
+                    com.mivisor.app.services.ProbeVerdict.NO_DATA -> "El motor está abierto, pero no llegan datos"
+                    com.mivisor.app.services.ProbeVerdict.ENGINE_ERROR -> "El motor devolvió un error"
+                    com.mivisor.app.services.ProbeVerdict.ENGINE_UNREACHABLE -> "El motor no está disponible"
+                    null -> "Comprobando…"
+                },
+                NeonType.H3, color = color, maxLines = 2
+            )
+        }
+        Txt(probe.step, NeonType.Body, color = Neon.Dim, maxLines = 3)
+        probe.stat?.let { st ->
+            Txt(
+                "Estado ${st.status ?: "—"} · ${st.peers} peers · ${st.speedDownKbps} KB/s" + (st.progress?.let { " · prebuffer $it %" } ?: ""),
+                NeonType.Small, maxLines = 2
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (result?.verdict == com.mivisor.app.services.ProbeVerdict.STREAMING) PrimaryButton("Ver ahora", onPlay, Modifier.focusRequester(first))
+            else if (!probe.running) SecondaryButton("Repetir", onRetry, Modifier.focusRequester(first), icon = R.drawable.ic_refresh, selected = true)
+            SecondaryButton(if (probe.running) "Cancelar" else "Cerrar", onDismiss, if (probe.running) Modifier.focusRequester(first) else Modifier)
+        }
+    }
+}

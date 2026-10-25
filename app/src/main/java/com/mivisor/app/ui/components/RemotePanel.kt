@@ -112,7 +112,7 @@ private fun Message(title: String, detail: String?, onRetry: () -> Unit, onCance
 }
 
 @Composable
-private fun Countdown(expiresAt: Long) {
+private fun Countdown(expiresAt: Long, prefix: String = "Caduca en ") {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(expiresAt) {
         while (now < expiresAt) {
@@ -121,53 +121,47 @@ private fun Countdown(expiresAt: Long) {
         }
     }
     val s = ((expiresAt - now) / 1000).coerceAtLeast(0)
-    Txt("Caduca en %d:%02d".format(s / 60, s % 60), Type.Caption, color = Palette.TextFaint, modifier = Modifier.padding(start = 2.dp))
+    Txt(prefix + "%d:%02d".format(s / 60, s % 60), Type.Caption, color = Palette.TextFaint, modifier = Modifier.padding(start = 2.dp))
 }
 
 /**
- * "Editar con móvil" dentro del formulario (columna derecha en TV). Sin sesión: botón para generar el QR.
- * Con sesión: QR, pasos y cuenta atrás; se puede enviar varias veces hasta que caduque (5 min).
+ * "Editar con el móvil" dentro del formulario: el QR está SIEMPRE visible (la sesión se crea al abrir).
+ * Muestra discretamente el tiempo de sesión; al caducar, "Sesión terminada" y "Generar nuevo QR" aquí mismo.
+ * No tiene botón de cerrar: Guardar y Salir siguen en el pie del formulario en todo momento.
  */
 @Composable
 fun MobileEditPanel(
     state: RemoteState,
     sends: Int,
     onStart: () -> Unit,
-    onClose: () -> Unit,
     modifier: Modifier = Modifier,
     qrSize: Dp = 150.dp,
     startFocus: FocusRequester? = null
 ) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(R.drawable.ic_phone, Palette.Cyan, size = 20.dp)
+            Icon(R.drawable.ic_phone, Palette.Cyan, size = 18.dp)
             Box(Modifier.width(8.dp))
-            Txt("Editar con móvil", Type.Label, maxLines = 1)
+            Txt("Editar con el móvil", Type.Label, maxLines = 1)
         }
         val startMod = if (startFocus != null) Modifier.focusRequester(startFocus) else Modifier
         when (state) {
             is RemoteState.Waiting -> {
                 QrImage(state.qr, qrSize)
-                Step(1, "Escanea el QR")
-                Step(2, "Corrige título y código")
-                Step(3, "Enviar al televisor")
+                Countdown(state.expiresAt, prefix = "Sesión: ")
                 Txt(
-                    if (sends == 0) "Puedes enviar varias veces." else "Recibidos $sends ${if (sends == 1) "envío" else "envíos"}. Puedes seguir enviando.",
-                    Type.Caption, color = if (sends == 0) Palette.TextFaint else Palette.Cyan, maxLines = 2
+                    if (sends == 0) "Escanea, corrige título y código y pulsa «Enviar al televisor». Puedes enviar varias veces."
+                    else "Recibidos $sends ${if (sends == 1) "envío" else "envíos"}. Puedes seguir enviando.",
+                    Type.Caption, color = if (sends == 0) Palette.TextFaint else Palette.Cyan, maxLines = 3
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Spinner(12.dp, Palette.Cyan)
-                    Box(Modifier.width(6.dp))
-                    Countdown(state.expiresAt)
-                }
-                TvButton("Cerrar QR", onClose, style = ButtonStyle.GHOST)
             }
             is RemoteState.Expired -> {
-                Txt("La sesión ha caducado.", Type.Body)
+                QrPlaceholder(qrSize, "Sesión terminada")
                 Txt("El móvil ya no puede enviar cambios.", Type.Caption, maxLines = 2)
                 TvButton("Generar nuevo QR", onStart, startMod, icon = R.drawable.ic_refresh, style = ButtonStyle.NORMAL)
             }
             is RemoteState.Failed -> {
+                QrPlaceholder(qrSize, "Sin QR")
                 Txt(
                     if (state.reason == RemoteState.Reason.NO_LAN) "No se ha podido iniciar la conexión con el móvil."
                     else "No se pudo iniciar el servicio de escritura remota.",
@@ -178,15 +172,19 @@ fun MobileEditPanel(
                 TvButton("Generar nuevo QR", onStart, startMod, icon = R.drawable.ic_refresh, style = ButtonStyle.NORMAL)
             }
             else -> {
-                Txt(
-                    "Evita escribir con el mando: el móvil abrirá una página con el título y el código actuales de este formulario.",
-                    Type.Caption, maxLines = 4
-                )
-                TvButton("Editar con móvil", onStart, startMod, icon = R.drawable.ic_phone, style = ButtonStyle.NORMAL)
-                Txt("Sin Internet: móvil → red local → TV.", Type.Caption, color = Palette.TextFaint, maxLines = 2)
+                QrPlaceholder(qrSize, "Preparando QR…")
             }
         }
     }
+}
+
+/** Hueco del QR cuando no hay sesión (mismo tamaño: el formulario no "salta"). */
+@Composable
+private fun QrPlaceholder(size: Dp, text: String) {
+    Box(
+        Modifier.size(size).background(Palette.Bg, RoundedCornerShape(10.dp)),
+        contentAlignment = Alignment.Center
+    ) { Txt(text, Type.Caption, color = Palette.TextFaint, maxLines = 2) }
 }
 
 @Composable

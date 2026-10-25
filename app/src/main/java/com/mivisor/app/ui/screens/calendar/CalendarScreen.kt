@@ -46,6 +46,7 @@ import com.mivisor.app.ui.components.Txt
 import com.mivisor.app.ui.kit.AutoFocus
 import com.mivisor.app.ui.kit.CompetitionLabel
 import com.mivisor.app.ui.kit.EmptyPanel
+import com.mivisor.app.ui.kit.FitText
 import com.mivisor.app.ui.kit.InfoLine
 import com.mivisor.app.ui.kit.PageHeader
 import com.mivisor.app.ui.kit.PrimaryButton
@@ -199,7 +200,7 @@ internal fun CalendarEventRow(
     val status = event.status(now)
     NeonCard(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth().height(if (compact) 64.dp else 50.dp),
+        modifier = modifier.fillMaxWidth().height(if (compact) 68.dp else 56.dp),
         radius = 12.dp,
         borderColor = if (status == EventStatus.LIVE) Neon.Red.copy(alpha = 0.45f) else Neon.Stroke,
         contentAlignment = Alignment.CenterStart
@@ -209,20 +210,21 @@ internal fun CalendarEventRow(
                 if (showDay) Txt(clock.shortDay(now, event.startMillis).replaceFirstChar { it.uppercase() }, NeonType.Small.copy(fontSize = 10.sp))
                 Txt(if (status == EventStatus.FINISHED) "Final" else eventTime(event), NeonType.H3.copy(fontSize = 15.sp))
             }
-            if (!compact) Box(Modifier.width(96.dp)) { StatusBadge(status) }
-            if (!compact) CompetitionLabel(event, Modifier.width(120.dp), size = 16.dp, style = NeonType.Small.copy(color = Neon.Dim))
+            if (!compact) Box(Modifier.width(88.dp)) { StatusBadge(status) }
+            if (!compact) CompetitionLabel(event, Modifier.width(104.dp).padding(end = 6.dp), size = 16.dp, style = NeonType.Small.copy(color = Neon.Dim), maxLines = 2)
             val home = event.home
             val away = event.away
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 if (home != null && away != null) {
+                    // Nombres en hasta 2 líneas y letra adaptada al ancho real (sin "Atlético de Mad…").
                     Participant(event.homeVisual, home, 22.dp, event.isPersonVsPerson)
-                    Txt(home, NeonType.Body, modifier = Modifier.padding(start = 6.dp).weight(1f))
+                    FitText(home, NeonType.Body, baseSp = 14f, minSp = 11.5f, modifier = Modifier.padding(start = 6.dp).weight(1f))
                     Txt("vs", NeonType.Small, color = Neon.Faint, modifier = Modifier.padding(horizontal = 6.dp))
                     Participant(event.awayVisual, away, 22.dp, event.isPersonVsPerson)
-                    Txt(away, NeonType.Body, modifier = Modifier.padding(start = 6.dp).weight(1f))
+                    FitText(away, NeonType.Body, baseSp = 14f, minSp = 11.5f, modifier = Modifier.padding(start = 6.dp).weight(1f))
                 } else {
                     Icon(sportIcon(event.sport), Neon.Dim, size = 18.dp)
-                    Txt(event.title, NeonType.Body, modifier = Modifier.padding(start = 8.dp).weight(1f))
+                    FitText(event.title, NeonType.Body, baseSp = 14f, minSp = 11.5f, modifier = Modifier.padding(start = 8.dp).weight(1f))
                 }
             }
             if (sources > 0) Txt("$sources", NeonType.Pill.copy(fontWeight = FontWeight.Bold), color = Neon.Cyan, modifier = Modifier.padding(horizontal = 6.dp))
@@ -241,7 +243,7 @@ private fun DetailPanel(agenda: AgendaUi, event: AgendaEvent, onWatch: () -> Uni
         modifier.background(Neon.Panel.copy(alpha = 0.9f), RoundedCornerShape(16.dp)).border(1.dp, Neon.Stroke, RoundedCornerShape(16.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Txt(event.displayTitle(), NeonType.H3.copy(fontSize = 15.sp), maxLines = 2)
+        FitText(event.displayTitle(), NeonType.H3, baseSp = 15f, minSp = 12f, maxLines = 3)
         val home = event.home
         val away = event.away
         if (home != null && away != null) {

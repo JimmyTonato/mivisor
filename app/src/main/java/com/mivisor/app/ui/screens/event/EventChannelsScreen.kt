@@ -40,6 +40,7 @@ import com.mivisor.app.ui.components.Txt
 import com.mivisor.app.ui.kit.AutoFocus
 import com.mivisor.app.ui.kit.ChannelLogo
 import com.mivisor.app.ui.kit.CompetitionLabel
+import com.mivisor.app.ui.kit.FitText
 import com.mivisor.app.ui.kit.InfoLine
 import com.mivisor.app.ui.kit.MetaTag
 import com.mivisor.app.ui.kit.PageHeader
@@ -145,9 +146,9 @@ private fun MatchCard(event: AgendaEvent, status: EventStatus) {
     ) {
         if (home != null && away != null) {
             Participant(event.homeVisual, home, 42.dp, event.isPersonVsPerson)
-            Txt(home, NeonType.H2.copy(fontSize = 17.sp), modifier = Modifier.padding(start = 10.dp).weight(1f))
+            FitText(home, NeonType.H2, baseSp = 17f, minSp = 13f, modifier = Modifier.padding(start = 10.dp).weight(1f))
             Center(event, status)
-            Txt(away, NeonType.H2.copy(fontSize = 17.sp, textAlign = androidx.compose.ui.text.style.TextAlign.End), modifier = Modifier.padding(end = 10.dp).weight(1f))
+            FitText(away, NeonType.H2, baseSp = 17f, minSp = 13f, modifier = Modifier.padding(end = 10.dp).weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
             Participant(event.awayVisual, away, 42.dp, event.isPersonVsPerson)
         } else {
             Icon(sportIcon(event.sport), Neon.Text, size = 34.dp)
@@ -267,7 +268,7 @@ private fun SidePanel(event: AgendaEvent, agenda: AgendaUi, best: Channel?, onPl
                 Participant(event.awayVisual, away, 50.dp, event.isPersonVsPerson)
             }
         }
-        Txt(event.displayTitle(), NeonType.H3.copy(fontSize = 15.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center), maxLines = 2, modifier = Modifier.fillMaxWidth())
+        FitText(event.displayTitle(), NeonType.H3, baseSp = 15f, minSp = 12f, modifier = Modifier.fillMaxWidth(), maxLines = 3, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         Txt("${dayTitle(event.startMillis)} · ${eventTimeText(event)}", NeonType.Body.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center), color = Neon.Dim, modifier = Modifier.fillMaxWidth())
         if (status == EventStatus.LIVE) Txt("● En directo ahora", NeonType.Body.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center), color = Ui.Green, modifier = Modifier.fillMaxWidth())
         if (best != null) PrimaryButton("Ver ahora", { onPlay(best) }, Modifier.fillMaxWidth(), height = 36.dp)

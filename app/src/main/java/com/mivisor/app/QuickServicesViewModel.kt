@@ -37,6 +37,15 @@ data class QuickServicesUi(
     val preview: Boolean = false
 )
 
+/** Comprobación "¿se reproduce de verdad?" de un canal Ace Stream. */
+data class ProbeUi(
+    val channelName: String,
+    val running: Boolean,
+    val step: String,
+    val stat: com.mivisor.app.services.ProbeStat? = null,
+    val result: com.mivisor.app.services.ProbeResult? = null
+)
+
 /** Ayuda que se muestra en un diálogo ("Cómo instalar"…). */
 enum class HelpTopic { ACE_INSTALL, WARP_INSTALL, WARP_SIGNATURE }
 
@@ -85,6 +94,41 @@ class QuickServicesViewModel(application: Application) : AndroidViewModel(applic
     val launch: StateFlow<PlayRequest?> = _launch.asStateFlow()
 
     private var planner: PlaybackPlanner? = null
+
+    private val _probe = MutableStateFlow<ProbeUi?>(null)
+    val probe: StateFlow<ProbeUi?> = _probe.asStateFlow()
+    private var probeJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Comprueba con el motor si el stream llega de verdad (no solo si Ace Stream se abre).
+     * Arranca el motor si hace falta (acción explícita del usuario) y cierra la sesión de prueba al acabar.
+     */
+    fun probe(channelName: String, url: String) {
+        val id = com.mivisor.app.data.AceStreamLink.contentId(url) ?: run {
+            _probe.value = ProbeUi(channelName, false, "No es un enlace Ace Stream válido.")
+            return
+        }
+        probeJob?.cancel()
+        _probe.value = ProbeUi(channelName, true, "Preparando el motor de Ace Stream…")
+        probeJob = viewModelScope.launch {
+            val engine = ace.ensureReady()
+            if (engine.phase != AcePhase.READY) {
+                _probe.value = ProbeUi(channelName, false, "El motor no está disponible (${QuickServiceText.ace(engine).status}).",
+                    result = com.mivisor.app.services.ProbeResult(com.mivisor.app.services.ProbeVerdict.ENGINE_UNREACHABLE, null, 0, "El motor no está listo."))
+                return@launch
+            }
+            _probe.value = _probe.value?.copy(step = "Pidiendo el contenido al motor…")
+            val result = com.mivisor.app.services.AceStreamProbe().run(engine.httpPort ?: 6878, id) { stat ->
+                _probe.value = _probe.value?.copy(step = "Estado: ${stat.status ?: "—"}", stat = stat)
+            }
+            _probe.value = _probe.value?.copy(running = false, step = result.detail, result = result)
+        }
+    }
+
+    fun closeProbe() {
+        probeJob?.cancel()
+        _probe.value = null
+    }
     private var aceAutoDone = false
     private var vpnAutoDone = false
 

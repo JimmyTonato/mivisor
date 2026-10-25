@@ -359,6 +359,44 @@ En el formulario **Añadir / Editar proveedor** (Título + Código), columna der
 - Si falla, se **conservan los últimos datos válidos**: la lista no se vacía. La cabecera dice
   "no se pudo actualizar: se muestran los últimos datos de hace…" y el proveedor lleva un punto ámbar.
 
+## Nombres largos en TV (v14)
+
+Antes los nombres iban en **una sola línea** dentro de columnas de ancho fijo (Calendario: ~95 dp por equipo con el panel
+lateral abierto; tarjetas de Inicio: "Local vs Visitante" compartiendo línea con la hora), así que salía "Atlético de Mad…".
+
+Ahora se usa `FitText` (`ui/kit/Kit.kt`) con la lógica pura de `ui/kit/TextFit.kt`:
+1. hasta **2 líneas** (partiendo por palabras);
+2. si aún no cabe, **reduce la letra** en pasos de 0,5 sp hasta un mínimo legible (Calendario 14→11,5; En directo 13→11;
+   Canales del encuentro 17→13; Inicio 12→10);
+3. la elipsis solo aparece si ni así cabe.
+
+Mide el ancho real (`BoxWithConstraints`) y tiene en cuenta el escalado de fuente del sistema, así que se adapta a 720p,
+1080p, 4K y a "texto grande". En Inicio la hora pasó junto a los escudos para dar todo el ancho de la tarjeta a los nombres.
+Las competiciones usan 2 líneas en el Calendario. Pruebas: `V14Test` (Atlético de Madrid, Deportivo de La Coruña,
+Borussia Mönchengladbach, Wolverhampton Wanderers, UEFA Europa Conference League…).
+
+## Modal Añadir / Editar canal (v14)
+
+- Al abrirse **ya muestra el QR**: la sesión se crea sola, sin botón "Usar móvil" ni segunda ventana.
+- Cabecera fija · cuerpo (campos | QR en pantallas anchas, uno debajo de otro en estrechas; si hace falta, el cuerpo hace scroll)
+  · pie fijo con **Salir** y **Guardar** siempre visibles. Tamaños calculados con el tamaño real de la pantalla (máx. 94 %).
+- D-pad: Título → Código → (QR / Generar nuevo QR) → Salir / Guardar.
+- Móvil: la página muestra Título y Código actuales; cada "Enviar al televisor" actualiza el formulario ("Actualizado desde el
+  móvil (envío N)"). **No guarda**: guarda el usuario en la TV.
+- Debajo del QR, discreto, "Sesión: 04:32". Al caducar se invalida el token, el móvil dice que genere un QR nuevo y en la TV
+  aparece "Sesión terminada" + **Generar nuevo QR**, sin cerrar el formulario ni perder lo escrito.
+
+## Ace Stream: "motor abierto" ≠ "se está reproduciendo" (v14)
+
+Opciones de un canal Ace → **Comprobar si se reproduce (Ace Stream)** (`services/AceStreamProbe.kt`). Habla con el motor
+local por su API HTTP (`/ace/getstream?id=…&format=json` → `stat_url` cada segundo → `method=stop` al acabar) y dice:
+- **Se reproduce**: estado `dl` con datos llegando (velocidad > 0 o descargado creciendo), con peers y KB/s → "Ver ahora".
+- **Solo prebuffer**, **sin datos** (sin peers), **error del motor** (rechaza el Content ID) o **motor no responde**.
+
+Nunca da por bueno un canal solo porque Ace Stream se abra. El Content ID se envía tal cual. Junto con
+**Ajustes → Registro de errores → Última apertura de canal** (intent, paquete destino, URI enmascarada) sirve para comparar
+con la app antigua: ambas mandan el mismo `Intent(VIEW, acestream://…)` + NEW_TASK sin extras ni MIME.
+
 ## Registro de errores
 
 **Ajustes → Registro de errores**. Si MiVisor se cierra inesperadamente, al volver a abrirla avisa y aquí aparece el detalle:

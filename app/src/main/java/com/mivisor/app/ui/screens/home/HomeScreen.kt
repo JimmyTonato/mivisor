@@ -47,6 +47,7 @@ import com.mivisor.app.ui.kit.AutoFocus
 import com.mivisor.app.ui.kit.Clock
 import com.mivisor.app.ui.kit.CompetitionLabel
 import com.mivisor.app.ui.kit.EventCard
+import com.mivisor.app.ui.kit.FitText
 import com.mivisor.app.ui.kit.LivePill
 import com.mivisor.app.ui.kit.PrimaryButton
 import com.mivisor.app.ui.kit.SecondaryButton
@@ -217,9 +218,9 @@ private fun HeroContent(
                         NeonType.Body, color = Neon.Dim
                     )
                 }
-                Txt(
-                    event.displayTitle(), Ui.PageTitle.copy(fontSize = if (layout.compact) 21.sp else 25.sp, lineHeight = if (layout.compact) 25.sp else 29.sp),
-                    maxLines = 2, modifier = Modifier.padding(top = 6.dp)
+                FitText(
+                    event.displayTitle(), Ui.PageTitle, baseSp = if (layout.compact) 21f else 25f, minSp = 17f,
+                    modifier = Modifier.padding(top = 6.dp)
                 )
                 Txt(
                     when {
@@ -272,7 +273,7 @@ private fun CompetitionCard(summary: CompetitionSummary, onClick: () -> Unit, mo
             CompetitionIcon(c, 24.dp)
             Box(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
-                Txt(c.label, Ui.CardTitle)
+                FitText(c.label, Ui.CardTitle, baseSp = 13f, minSp = 11f, maxLines = 1)
                 Row {
                     if (summary.text.isNotEmpty()) Txt(summary.text, Ui.CardSmall)
                     if (summary.liveText != null) {

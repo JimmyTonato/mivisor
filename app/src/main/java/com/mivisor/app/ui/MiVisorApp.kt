@@ -70,6 +70,7 @@ import com.mivisor.app.ui.shell.BottomBar
 import com.mivisor.app.ui.shell.HelpDialog
 import com.mivisor.app.ui.shell.NavItem
 import com.mivisor.app.ui.shell.PreparingDialog
+import com.mivisor.app.ui.shell.ProbeDialog
 import com.mivisor.app.ui.shell.ServicesPanelDialog
 import com.mivisor.app.ui.shell.Sidebar
 import com.mivisor.app.ui.theme.LocalAnimations
@@ -106,6 +107,8 @@ fun MiVisorApp(vm: MainViewModel) {
     val launch by quick.launch.collectAsStateWithLifecycle()
     val panel by quick.panel.collectAsStateWithLifecycle()
     val help by quick.help.collectAsStateWithLifecycle()
+    val probe by quick.probe.collectAsStateWithLifecycle()
+    var probeChannel by remember { mutableStateOf<Channel?>(null) }
 
     val context = LocalContext.current
     val launcher = remember { StreamLauncher(context) }
@@ -405,7 +408,10 @@ fun MiVisorApp(vm: MainViewModel) {
                     optionsFor = null
                     launcher.preferences.forgetChannel(channel.name)
                     Toast.makeText(context, "Se volverá a preguntar con qué app abrirlo", Toast.LENGTH_SHORT).show()
-                }
+                },
+                onProbe = if (channel.kind == ChannelKind.ACE) {
+                    { optionsFor = null; probeChannel = channel; quick.probe(channel.name, channel.url) }
+                } else null
             )
         }
 
@@ -444,6 +450,15 @@ fun MiVisorApp(vm: MainViewModel) {
                 onOk = onServiceOk,
                 onManage = { quick.closePanel(); settingsSection = SettingsSection.SERVICES; selectTab(NavItem.SETTINGS) },
                 onDismiss = quick::closePanel
+            )
+        }
+
+        probe?.let { p ->
+            ProbeDialog(
+                probe = p,
+                onPlay = { quick.closeProbe(); probeChannel?.let { playChannel(it) } },
+                onRetry = { probeChannel?.let { quick.probe(it.name, it.url) } },
+                onDismiss = quick::closeProbe
             )
         }
 

@@ -35,6 +35,7 @@ import com.mivisor.app.ui.components.Txt
 import com.mivisor.app.ui.kit.AutoFocus
 import com.mivisor.app.ui.kit.CompetitionLabel
 import com.mivisor.app.ui.kit.EmptyPanel
+import com.mivisor.app.ui.kit.FitText
 import com.mivisor.app.ui.kit.LivePill
 import com.mivisor.app.ui.kit.PageHeader
 import com.mivisor.app.ui.kit.SecondaryButton
@@ -123,7 +124,7 @@ fun LiveScreen(
 /** Tarjeta de En directo: estado y competición arriba, hora, participantes y nº de fuentes. Toda la tarjeta es el control. */
 @Composable
 private fun LiveGridCard(event: AgendaEvent, sources: Int, onClick: () -> Unit, modifier: Modifier) {
-    NeonCard(onClick = onClick, modifier = modifier.fillMaxWidth().height(116.dp), radius = 14.dp) { focused ->
+    NeonCard(onClick = onClick, modifier = modifier.fillMaxWidth().height(128.dp), radius = 14.dp) { focused ->
         Box(
             Modifier.fillMaxSize().background(
                 Brush.linearGradient(listOf(Neon.Panel, Neon.Red.copy(alpha = if (focused) 0.22f else 0.10f))), RoundedCornerShape(14.dp)
@@ -147,9 +148,9 @@ private fun LiveGridCard(event: AgendaEvent, sources: Int, onClick: () -> Unit, 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Participant(event.homeVisual, home, 30.dp, event.isPersonVsPerson)
                         Box(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Txt(home, Ui.CardTitle)
-                            Txt(away, Ui.CardTitle)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            FitText(home, Ui.CardTitle, baseSp = 13f, minSp = 11f)
+                            FitText(away, Ui.CardTitle, baseSp = 13f, minSp = 11f)
                         }
                         Box(Modifier.width(6.dp))
                         Participant(event.awayVisual, away, 30.dp, event.isPersonVsPerson)
@@ -157,7 +158,7 @@ private fun LiveGridCard(event: AgendaEvent, sources: Int, onClick: () -> Unit, 
                     }
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Txt(event.title, Ui.CardTitle.copy(fontSize = 14.sp), maxLines = 2, modifier = Modifier.weight(1f))
+                        FitText(event.title, Ui.CardTitle, baseSp = 14f, minSp = 11f, modifier = Modifier.weight(1f))
                         Icon(sportIcon(event.sport), Neon.Text, size = 28.dp)
                         Icon(R.drawable.ic_chevron_right, if (focused) Neon.Cyan else Neon.Faint, size = 16.dp)
                     }

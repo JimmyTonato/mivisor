@@ -74,6 +74,29 @@ object Ui {
     val CardSmall = TextStyle(color = Neon.Dim, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium)
 }
 
+/**
+ * Texto que se adapta al ancho real disponible: hasta [maxLines] líneas y, si aún no cabe, letra algo más pequeña
+ * (hasta [minSp]). La elipsis solo aparece si ni así cabe. Tiene en cuenta el escalado de fuente del sistema.
+ */
+@Composable
+fun FitText(
+    text: String,
+    style: TextStyle,
+    baseSp: Float,
+    minSp: Float,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 2,
+    textAlign: TextAlign? = null,
+    color: Color = Color.Unspecified
+) {
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
+        val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+        val sp = TextFit.fit(text, maxWidth.value, baseSp, minSp, maxLines, fontScale)
+        val fitted = style.copy(fontSize = sp.sp, lineHeight = (sp * 1.2f).sp, textAlign = textAlign ?: style.textAlign)
+        Txt(text, fitted, color = color, maxLines = maxLines)
+    }
+}
+
 /** Hora actual (se refresca cada 20 s). */
 @Composable
 fun Clock(style: TextStyle = NeonType.H2.copy(fontWeight = FontWeight.Medium)) {
@@ -189,7 +212,7 @@ fun StatusBadge(status: EventStatus, modifier: Modifier = Modifier) = when (stat
 
 /** Logo/escudo de la competición (o sus iniciales) + nombre corto. */
 @Composable
-fun CompetitionLabel(event: AgendaEvent, modifier: Modifier = Modifier, size: Dp = 14.dp, style: TextStyle = Ui.CardSmall) {
+fun CompetitionLabel(event: AgendaEvent, modifier: Modifier = Modifier, size: Dp = 14.dp, style: TextStyle = Ui.CardSmall, maxLines: Int = 1) {
     val competition = Competition.of(event)
     val label = if (competition == Competition.FUTBOL || competition == Competition.TENIS || competition == Competition.OTHER || competition == Competition.MOTOR)
         event.competition ?: sportLabel(event.sport) else competition.short
@@ -200,7 +223,8 @@ fun CompetitionLabel(event: AgendaEvent, modifier: Modifier = Modifier, size: Dp
             Icon(sportIcon(event.sport), Neon.Dim, size = size)
         }
         Box(Modifier.width(5.dp))
-        Txt(label, style)
+        if (maxLines > 1) FitText(label, style, baseSp = style.fontSize.value.takeIf { it > 0 } ?: 11f, minSp = 10f, maxLines = maxLines)
+        else Txt(label, style)
     }
 }
 
@@ -228,30 +252,29 @@ fun EventCard(
                 Box(Modifier.weight(1f))
                 CompetitionLabel(event, Modifier.widthIn(max = width * 0.55f))
             }
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+              Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 val home = event.home
                 val away = event.away
                 if (home != null && away != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Participant(event.homeVisual, home, 26.dp, event.isPersonVsPerson)
+                        Participant(event.homeVisual, home, 22.dp, event.isPersonVsPerson)
                         Txt("vs", Ui.CardSmall.copy(color = Neon.Faint), modifier = Modifier.padding(horizontal = 8.dp))
-                        Participant(event.awayVisual, away, 26.dp, event.isPersonVsPerson)
+                        Participant(event.awayVisual, away, 22.dp, event.isPersonVsPerson)
                     }
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(sportIcon(event.sport), Neon.Text, size = 22.dp)
                     }
                 }
+              }
+              // La hora va junto a los escudos: los nombres tienen todo el ancho de la tarjeta.
+              Txt(eventTime(event), Ui.CardSmall.copy(color = Neon.Text, fontWeight = FontWeight.Bold))
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Txt(
-                    if (event.home != null && event.away != null) "${event.home} vs ${event.away}" else event.title,
-                    Ui.CardTitle.copy(fontSize = 12.sp, lineHeight = 15.sp),
-                    modifier = Modifier.weight(1f)
-                )
-                Box(Modifier.width(6.dp))
-                Txt(eventTime(event), Ui.CardSmall.copy(color = Neon.Text, fontWeight = FontWeight.Bold))
-            }
+            FitText(
+                if (event.home != null && event.away != null) "${event.home} vs ${event.away}" else event.title,
+                Ui.CardTitle, baseSp = 12f, minSp = 10f, modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

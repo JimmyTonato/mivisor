@@ -1,6 +1,7 @@
 package com.mivisor.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -98,7 +99,8 @@ fun ChannelOptionsDialog(
     onOpen: () -> Unit,
     onOpenWith: () -> Unit,
     onShare: () -> Unit,
-    onForget: () -> Unit
+    onForget: () -> Unit,
+    onProbe: (() -> Unit)? = null
 ) {
     val first = remember { FocusRequester() }
     TvDialog(
@@ -107,10 +109,14 @@ fun ChannelOptionsDialog(
         onDismiss = onDismiss,
         initialFocus = first
     ) {
-        Txt(channel.url, Type.Caption, color = Palette.TextFaint, maxLines = 2)
+        Txt(
+            com.mivisor.app.data.AceStreamLink.contentId(channel.url)?.let { "acestream://" + com.mivisor.app.data.AceStreamLink.masked(it) } ?: channel.url,
+            Type.Caption, color = Palette.TextFaint, maxLines = 2
+        )
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             MenuRow("Abrir", R.drawable.ic_play, onOpen, Modifier.focusRequester(first))
             MenuRow("Abrir con…", R.drawable.ic_apps, onOpenWith)
+            if (onProbe != null) MenuRow("Comprobar si se reproduce (Ace Stream)", R.drawable.ic_bolt, onProbe)
             MenuRow("Compartir enlace", R.drawable.ic_share, onShare)
             MenuRow("Olvidar la app recordada para este canal", R.drawable.ic_refresh, onForget)
         }
@@ -184,10 +190,13 @@ enum class SourceDialogMode { OPEN_CODE, ADD, EDIT }
 enum class SourceAction { OPEN_ONLY, SAVE_AND_OPEN, SAVE }
 
 /**
- * "Añadir proveedor" / "Abrir código del proveedor" / "Editar proveedor".
- * Título + código a la izquierda y "Editar con móvil" a la derecha: el móvil abre una página con los valores
- * actuales del formulario y cada "Enviar al televisor" los actualiza aquí (varias veces durante 5 min).
- * Enviar desde el móvil NUNCA guarda: el formulario de la TV sigue siendo el punto final de revisión.
+ * "Añadir / Editar" (título + código). Organización:
+ *   cabecera · [Título, Código | QR "Editar con el móvil"] · pie fijo con Salir / Abrir / Guardar.
+ * - El QR está visible desde el primer momento: la sesión (5 min, varios envíos) se crea al abrir el formulario.
+ * - El pie no se desplaza nunca: campos, QR, Guardar y Salir están siempre disponibles.
+ * - Pantalla ancha: dos columnas (formulario | QR). Estrecha o con mucho escalado: formulario, QR y botones apilados
+ *   (el cuerpo se desplaza con el D-pad; el pie queda fijo).
+ * Lo que llega del móvil solo rellena los campos; guardar es siempre una decisión en la TV.
  */
 @Composable
 fun SourceDialog(
@@ -197,7 +206,7 @@ fun SourceDialog(
     onDismiss: () -> Unit,
     onResult: (name: String, code: String, action: SourceAction) -> Unit
 ) {
-    val layout = com.mivisor.app.ui.neon.LocalAppLayout.current
+    val config = androidx.compose.ui.platform.LocalConfiguration.current
     val remote: RemoteInputViewModel = viewModel()
     val remoteState by remote.state.collectAsState()
     val edit by remote.edits.collectAsState()
@@ -207,8 +216,7 @@ fun SourceDialog(
     var lastApplied by remember { mutableStateOf(0) }
     var fromPhone by remember { mutableStateOf(false) }
     val valid = Codes.normalizeOrNull(code) != null
-    val codeFocus = remember { FocusRequester() }
-    val panelFocus = remember { FocusRequester() }
+    val titleFocus = remember { FocusRequester() }
 
     val title = when (mode) {
         SourceDialogMode.OPEN_CODE -> "Abrir código del proveedor"
@@ -216,7 +224,13 @@ fun SourceDialog(
         SourceDialogMode.EDIT -> "Editar proveedor"
     }
 
-    // Salir del formulario (guardar, cancelar, Atrás) invalida la sesión y apaga el servidor.
+    fun startPhone() {
+        lastApplied = 0
+        remote.startEdit(title, name, code)
+    }
+
+    // QR siempre visible: la sesión se crea al abrir. Salir del formulario la invalida y apaga el servidor.
+    LaunchedEffect(Unit) { startPhone() }
     DisposableEffect(Unit) { onDispose { remote.cancel() } }
     // La página del móvil siempre se abre con lo que hay ahora en el formulario.
     LaunchedEffect(name, code) { remote.updateFields(name, code) }
@@ -232,11 +246,6 @@ fun SourceDialog(
         fromPhone = true
     }
 
-    fun startPhone() {
-        lastApplied = 0
-        remote.startEdit(title, name, code)
-    }
-
     fun submit(action: SourceAction) {
         if (!valid) {
             showError = true
@@ -246,56 +255,89 @@ fun SourceDialog(
         onResult(name, code, action)
     }
 
-    val subtitle = when (mode) {
-        SourceDialogMode.EDIT -> "Cambia el título o el código de este proveedor."
-        else -> "Escribe el código con el mando o usa «Editar con móvil» para no teclear códigos largos."
-    }
     val codeError = if (showError && !valid) "Solo letras, números, puntos y guiones" else null
     val sends = if (remoteState is RemoteState.Waiting) lastApplied else 0
 
-    TvDialog(title = title, subtitle = subtitle, onDismiss = onDismiss, width = if (layout.compact) 560.dp else 760.dp, initialFocus = codeFocus) {
-        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                TvTextField(
-                    name, { name = it; fromPhone = false },
-                    if (mode == SourceDialogMode.EDIT) "Título" else "Título (opcional)",
-                    placeholder = "P. ej. DAZN F1"
+    // Medidas a partir de la pantalla real (resolución + escalado): nada fijo que pueda salirse.
+    val screenW = config.screenWidthDp.toFloat()
+    val screenH = config.screenHeightDp.toFloat()
+    val dialogW = minOf(screenW * 0.94f, 860f)
+    val wide = dialogW >= 620f
+    val qrSize = (screenH * 0.30f).coerceIn(110f, 190f).dp
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        InitialFocus(titleFocus)
+        Column(
+            Modifier
+                .padding(8.dp)
+                .widthIn(max = dialogW.dp)
+                .fillMaxWidth()
+                .heightIn(max = (screenH * 0.94f).dp)
+                .background(
+                    androidx.compose.ui.graphics.Brush.linearGradient(listOf(Palette.Accent.copy(alpha = 0.22f), Palette.Surface, Palette.Surface)),
+                    RoundedCornerShape(20.dp)
                 )
-                TvTextField(
-                    code, { code = it; showError = false; fromPhone = false }, "Código",
-                    placeholder = "P. ej. deportes", error = codeError, focusRequester = codeFocus
-                )
-                if (fromPhone) {
-                    Txt(
-                        "✓ Actualizado desde el móvil${if (lastApplied > 1) " (envío $lastApplied)" else ""}. Revisa y pulsa ${if (mode == SourceDialogMode.EDIT) "Guardar" else "Guardar y abrir"}.",
-                        Type.Caption, color = Palette.Cyan, maxLines = 2
+                .border(1.dp, Palette.Outline, RoundedCornerShape(20.dp))
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Cabecera
+            Column {
+                Txt(title, Type.Title, maxLines = 1)
+                Txt("Escribe con el mando o edita desde el móvil escaneando el QR. Nada se guarda hasta que pulses Guardar.", Type.Caption, maxLines = 2)
+            }
+            // Cuerpo (se desplaza si no cabe; el pie no)
+            Box(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                val fields: @Composable () -> Unit = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TvTextField(
+                            name, { name = it; fromPhone = false },
+                            if (mode == SourceDialogMode.EDIT) "Título" else "Título (opcional)",
+                            placeholder = "P. ej. DAZN F1", focusRequester = titleFocus
+                        )
+                        TvTextField(
+                            code, { code = it; showError = false; fromPhone = false }, "Código",
+                            placeholder = "P. ej. deportes", error = codeError
+                        )
+                        if (fromPhone) {
+                            Txt(
+                                "✓ Actualizado desde el móvil${if (lastApplied > 1) " (envío $lastApplied)" else ""}. Revisa y pulsa ${if (mode == SourceDialogMode.EDIT) "Guardar" else "Guardar y abrir"}.",
+                                Type.Caption, color = Palette.Cyan, maxLines = 2
+                            )
+                        }
+                    }
+                }
+                val panel: @Composable (Modifier) -> Unit = { m ->
+                    MobileEditPanel(
+                        remoteState, sends, ::startPhone,
+                        m.background(Palette.Bg.copy(alpha = 0.6f), RoundedCornerShape(16.dp)).border(1.dp, Palette.Outline, RoundedCornerShape(16.dp)).padding(10.dp),
+                        qrSize = qrSize
                     )
                 }
-            }
-            if (!layout.compact) {
-                MobileEditPanel(
-                    remoteState, sends, ::startPhone, { remote.cancel() },
-                    Modifier.width(220.dp).background(Palette.Surface, RoundedCornerShape(16.dp)).border(1.dp, Palette.Outline, RoundedCornerShape(16.dp)).padding(12.dp),
-                    startFocus = panelFocus
-                )
-            }
-        }
-        if (layout.compact) MobileEditPanel(remoteState, sends, ::startPhone, { remote.cancel() }, Modifier.fillMaxWidth())
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(R.drawable.ic_info, Palette.TextFaint, size = 16.dp)
-            Box(Modifier.width(8.dp))
-            Txt("Lo que envíes desde el móvil solo rellena estos campos. Nada se guarda hasta que pulses un botón aquí.", Type.Caption, maxLines = 2)
-        }
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            when (mode) {
-                SourceDialogMode.OPEN_CODE, SourceDialogMode.ADD -> {
-                    TvButton("Abrir", { submit(SourceAction.OPEN_ONLY) }, icon = R.drawable.ic_play, style = ButtonStyle.PRIMARY)
-                    TvButton("Guardar y abrir", { submit(SourceAction.SAVE_AND_OPEN) }, icon = R.drawable.ic_add)
+                if (wide) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        Box(Modifier.weight(1f)) { fields() }
+                        panel(Modifier.width(qrSize + 60.dp))
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        fields()
+                        panel(Modifier.fillMaxWidth())
+                    }
                 }
-                SourceDialogMode.EDIT ->
-                    TvButton("Guardar", { submit(SourceAction.SAVE) }, style = ButtonStyle.PRIMARY)
             }
-            TvButton("Cancelar", { remote.cancel(); onDismiss() }, style = ButtonStyle.GHOST)
+            // Pie fijo: siempre visibles
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TvButton("Salir", { remote.cancel(); onDismiss() }, style = ButtonStyle.GHOST)
+                Box(Modifier.weight(1f))
+                when (mode) {
+                    SourceDialogMode.OPEN_CODE, SourceDialogMode.ADD -> {
+                        TvButton("Abrir", { submit(SourceAction.OPEN_ONLY) }, icon = R.drawable.ic_play)
+                        TvButton("Guardar y abrir", { submit(SourceAction.SAVE_AND_OPEN) }, icon = R.drawable.ic_add, style = ButtonStyle.PRIMARY)
+                    }
+                    SourceDialogMode.EDIT -> TvButton("Guardar", { submit(SourceAction.SAVE) }, style = ButtonStyle.PRIMARY)
+                }
+            }
         }
     }
 }
