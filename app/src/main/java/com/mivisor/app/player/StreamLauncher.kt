@@ -50,6 +50,10 @@ class StreamLauncher(context: Context) {
 
     /** Último informe de apertura (para Registro de errores). Content IDs enmascarados. */
     var lastReport: String? = null
+
+    /** Qué app abrió el último enlace y por qué (Registro Ace Stream). */
+    class Trace(val packageName: String?, val reason: String, val handlers: List<String>, val systemDefault: String?, val sentUri: String, val httpMode: Boolean)
+    var lastTrace: Trace? = null
         private set
 
     /** Lanza directamente si puede; si hay que elegir, devuelve la lista de apps. */
@@ -64,25 +68,52 @@ class StreamLauncher(context: Context) {
                 target, enginePrepared, engineState
             )
         }
+        val handlers = compatibleApps(intent)
+        val handlerNames = handlers.map { it.packageName }
+        val systemDefault = systemDefault(intent)
+        fun trace(pkg: String?, reason: String) {
+            lastTrace = Trace(pkg, reason, handlerNames, systemDefault, spec.uri, spec.convertedToHttp)
+        }
         if (!forceChooser) {
             if (!preferences.selectorEnabled || scheme == "tvgram" || scheme == "tg") {
                 report("el sistema (app predeterminada para $scheme)")
+                trace(systemDefault, "selector de apps desactivado: decide Android")
                 launch(intent); return Decision.Launched
             }
-            preferences.preferredPackage(channel.name, channel.group, scheme)
-                ?.takeIf(::isInstalled)
-                ?.let { pkg ->
-                    report("$pkg (app recordada)")
+            preferences.preferredPackageWithReason(channel.name, channel.group, scheme)
+                ?.takeIf { isInstalled(it.first) }
+                ?.let { (pkg, why) ->
+                    report("$pkg ($why)")
+                    trace(pkg, why)
                     if (runCatching { launch(intent, pkg) }.isSuccess) return Decision.Launched
                 }
         }
-        val apps = compatibleApps(intent)
         return when {
-            apps.isEmpty() -> throw IllegalStateException("No hay ninguna app instalada que pueda abrir este enlace")
-            apps.size == 1 && !forceChooser -> { report("${apps[0].packageName} (única app compatible)"); launch(intent, apps[0].packageName); Decision.Launched }
-            else -> { report("elegida por el usuario entre ${apps.size} apps"); Decision.Choose(intent, apps) }
+            handlers.isEmpty() -> throw IllegalStateException("No hay ninguna app instalada que pueda abrir este enlace")
+            handlers.size == 1 && !forceChooser -> {
+                report("${handlers[0].packageName} (única app compatible)")
+                trace(handlers[0].packageName, "única app compatible instalada")
+                launch(intent, handlers[0].packageName); Decision.Launched
+            }
+            else -> {
+                report("elegida por el usuario entre ${handlers.size} apps")
+                trace(null, "pendiente de elegir entre ${handlers.size} apps")
+                Decision.Choose(intent, handlers)
+            }
         }
     }
+
+    /** Tras elegir en el selector: actualiza el rastro con la app elegida. */
+    fun picked(packageName: String, scope: RememberScope) {
+        lastTrace = lastTrace?.let {
+            Trace(packageName, "elegida ahora en el selector (${scope.label.lowercase(Locale.ROOT)})", it.handlers, it.systemDefault, it.sentUri, it.httpMode)
+        }
+    }
+
+    private fun systemDefault(intent: Intent): String? = runCatching {
+        app.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+            ?.takeIf { it != "android" && !it.contains("resolver", ignoreCase = true) }
+    }.getOrNull()
 
     fun launch(intent: Intent, packageName: String? = null) {
         val target = Intent(intent)

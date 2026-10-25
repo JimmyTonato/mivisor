@@ -236,3 +236,24 @@ fun ProbeDialog(probe: com.mivisor.app.ProbeUi, onPlay: () -> Unit, onRetry: () 
         }
     }
 }
+
+/**
+ * Al volver a MiVisor poco después de abrir un canal Ace: "¿se ha visto?". La respuesta queda en el
+ * Registro Ace Stream y "No" lanza la comprobación real del motor (peers / datos) sobre el mismo Content ID.
+ */
+@Composable
+fun AceWatchedDialog(channelName: String, awaySeconds: Long, onYes: () -> Unit, onNo: () -> Unit, onDismiss: () -> Unit) {
+    val first = remember { FocusRequester() }
+    TvDialog(title = "¿Se ha visto el canal?", subtitle = channelName, onDismiss = onDismiss, width = 520.dp, initialFocus = first) {
+        Txt(
+            "Has vuelto tras ${com.mivisor.app.diagnostics.AceLog.duration(awaySeconds)}. Tu respuesta se guarda en el Registro Ace Stream " +
+                "(Ajustes → Registro de errores) para comparar con la app antigua.",
+            NeonType.Body, color = Neon.Dim, maxLines = 4
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SecondaryButton("No, se quedó cargando · Comprobar", onNo, Modifier.focusRequester(first), selected = true)
+            SecondaryButton("Sí, se veía", onYes)
+            SecondaryButton("Cerrar", onDismiss)
+        }
+    }
+}

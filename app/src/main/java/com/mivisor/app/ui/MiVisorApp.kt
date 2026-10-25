@@ -71,6 +71,7 @@ import com.mivisor.app.ui.shell.HelpDialog
 import com.mivisor.app.ui.shell.NavItem
 import com.mivisor.app.ui.shell.PreparingDialog
 import com.mivisor.app.ui.shell.ProbeDialog
+import com.mivisor.app.ui.shell.AceWatchedDialog
 import com.mivisor.app.ui.shell.ServicesPanelDialog
 import com.mivisor.app.ui.shell.Sidebar
 import com.mivisor.app.ui.theme.LocalAnimations
@@ -122,6 +123,9 @@ fun MiVisorApp(vm: MainViewModel) {
     var sourceDialog by remember { mutableStateOf<SourceDialogState?>(null) }
     var optionsFor by remember { mutableStateOf<Channel?>(null) }
     var picker by remember { mutableStateOf<PickerState?>(null) }
+    // Registro Ace Stream: última apertura Ace pendiente de "¿se ha visto?" al volver.
+    var aceLaunched by remember { mutableStateOf<Pair<com.mivisor.app.model.Channel, Long>?>(null) }
+    var aceAsk by remember { mutableStateOf<Pair<com.mivisor.app.model.Channel, Long>?>(null) }
     var vpnVersion by remember { mutableIntStateOf(0) }
     val navFocus = remember { FocusRequester() }
 
@@ -153,6 +157,21 @@ fun MiVisorApp(vm: MainViewModel) {
 
     // ------------------------------------------------------------------ reproducir
 
+    /** Registro Ace Stream: qué app abrió el canal y por qué, ID intacto, VPN, estado del motor. */
+    fun logAceLaunch(request: PlayRequest) {
+        val ch = request.channel
+        if (ch.kind != ChannelKind.ACE) return
+        val t = launcher.lastTrace ?: return
+        quick.logAce(com.mivisor.app.diagnostics.AceLog.entry(com.mivisor.app.diagnostics.AceLog.Launch(
+            channel = ch.name, provider = ch.source, group = ch.group, storedUrl = ch.url, sentUri = t.sentUri,
+            targetPackage = t.packageName, reason = t.reason, handlers = t.handlers, systemDefault = t.systemDefault,
+            providerVpn = launcher.preferences.vpnFor(ch.providerId),
+            systemVpn = com.mivisor.app.diagnostics.NetState.vpnActive(context),
+            httpEngineMode = t.httpMode, engineBefore = quick.engineText(services.aceStatus)
+        )))
+        aceLaunched = ch to System.currentTimeMillis()
+    }
+
     fun launchNow(request: PlayRequest) {
         try {
             val prepared = request.channel.kind == ChannelKind.ACE && launcher.preferences.customAceEnabled
@@ -160,7 +179,7 @@ fun MiVisorApp(vm: MainViewModel) {
             launcher.lastReport?.let { CrashReporter.saveDiagnostic(context, it) }
             when (decision) {
                 is StreamLauncher.Decision.Choose -> picker = PickerState(request, decision.intent, decision.apps)
-                StreamLauncher.Decision.Launched -> vm.recordPlayback(request)
+                StreamLauncher.Decision.Launched -> { vm.recordPlayback(request); logAceLaunch(request) }
             }
         } catch (e: Exception) {
             toast(e.message)
@@ -213,6 +232,13 @@ fun MiVisorApp(vm: MainViewModel) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
+                    aceLaunched?.let { (ch, at) ->
+                        aceLaunched = null
+                        val now = System.currentTimeMillis()
+                        val away = (now - at) / 1000
+                        quick.describeEngine { engine -> quick.logAce(com.mivisor.app.diagnostics.AceLog.returned(away, engine)) }
+                        if (com.mivisor.app.diagnostics.AceLog.shouldAsk(at, now)) aceAsk = ch to away
+                    }
                     quick.onForeground()
                     vm.refreshStale()                 // canales: solo si la copia es vieja (la caché evita descargas)
                 }
@@ -415,6 +441,20 @@ fun MiVisorApp(vm: MainViewModel) {
             )
         }
 
+        aceAsk?.let { (ch, away) ->
+            AceWatchedDialog(
+                channelName = ch.name, awaySeconds = away,
+                onYes = { quick.logAce(com.mivisor.app.diagnostics.AceLog.answer(true)); aceAsk = null },
+                onNo = {
+                    quick.logAce(com.mivisor.app.diagnostics.AceLog.answer(false))
+                    aceAsk = null
+                    probeChannel = ch
+                    quick.probe(ch.name, ch.url)
+                },
+                onDismiss = { aceAsk = null }
+            )
+        }
+
         picker?.let { state ->
             AppPickerDialog(
                 channel = state.request.channel,
@@ -425,7 +465,9 @@ fun MiVisorApp(vm: MainViewModel) {
                     try {
                         launcher.remember(state.request.channel, state.intent, app.packageName, scope)
                         launcher.launch(state.intent, app.packageName)
+                        launcher.picked(app.packageName, scope)
                         vm.recordPlayback(state.request)
+                        logAceLaunch(state.request)
                     } catch (e: Exception) {
                         toast(e.message)
                     }

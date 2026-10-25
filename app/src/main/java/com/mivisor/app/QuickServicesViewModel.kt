@@ -115,6 +115,7 @@ class QuickServicesViewModel(application: Application) : AndroidViewModel(applic
             if (engine.phase != AcePhase.READY) {
                 _probe.value = ProbeUi(channelName, false, "El motor no está disponible (${QuickServiceText.ace(engine).status}).",
                     result = com.mivisor.app.services.ProbeResult(com.mivisor.app.services.ProbeVerdict.ENGINE_UNREACHABLE, null, 0, "El motor no está listo."))
+                logAce(com.mivisor.app.diagnostics.AceLog.probe(channelName, "MOTOR NO DISPONIBLE", null, null, null, 0, engineText(engine)))
                 return@launch
             }
             _probe.value = _probe.value?.copy(step = "Pidiendo el contenido al motor…")
@@ -122,7 +123,41 @@ class QuickServicesViewModel(application: Application) : AndroidViewModel(applic
                 _probe.value = _probe.value?.copy(step = "Estado: ${stat.status ?: "—"}", stat = stat)
             }
             _probe.value = _probe.value?.copy(running = false, step = result.detail, result = result)
+            logAce(com.mivisor.app.diagnostics.AceLog.probe(
+                channelName, verdictLabel(result.verdict), result.lastStat?.peers, result.lastStat?.speedDownKbps,
+                result.lastStat?.status, result.seconds, result.detail
+            ))
         }
+    }
+
+    // ------------------------------------------------------------------ Registro Ace Stream
+
+    private val aceLogDir get() = java.io.File(getApplication<Application>().filesDir, "crashes")
+
+    fun logAce(text: String) {
+        val dir = aceLogDir
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { com.mivisor.app.diagnostics.AceLog.append(dir, text) }
+    }
+
+    /** Estado real del motor (get_version por HTTP; no lo arranca). */
+    fun describeEngine(onDone: (String) -> Unit) {
+        viewModelScope.launch {
+            val a = ace.refresh()
+            onDone(engineText(a))
+        }
+    }
+
+    fun engineText(a: AceStatus): String = when (a.phase) {
+        AcePhase.READY -> "responde (versión ${a.version ?: "?"}, puerto ${a.httpPort ?: 6878})"
+        else -> "${a.phase.name.lowercase()} (${QuickServiceText.ace(a).status})"
+    }
+
+    private fun verdictLabel(v: com.mivisor.app.services.ProbeVerdict) = when (v) {
+        com.mivisor.app.services.ProbeVerdict.STREAMING -> "SE REPRODUCE"
+        com.mivisor.app.services.ProbeVerdict.PREBUFFERING_ONLY -> "SOLO PREBUFFER"
+        com.mivisor.app.services.ProbeVerdict.NO_DATA -> "SIN DATOS"
+        com.mivisor.app.services.ProbeVerdict.ENGINE_ERROR -> "ERROR DEL MOTOR"
+        com.mivisor.app.services.ProbeVerdict.ENGINE_UNREACHABLE -> "MOTOR NO RESPONDE"
     }
 
     fun closeProbe() {

@@ -66,7 +66,7 @@ fun ErrorLogScreen(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(horizontal = layout.gutter)) {
         ScreenHero(
             title = "Registro de errores",
-            subtitle = "Si MiVisor se cierra o falla, aquí queda el detalle para poder corregirlo. No incluye tus códigos ni enlaces.",
+            subtitle = "Errores de MiVisor y Registro Ace Stream (qué app abre cada canal, VPN, motor, si se vio). Sin tus códigos ni enlaces completos.",
             status = if (reports.isEmpty()) "Sin errores registrados" else "${reports.size} registro(s)"
         ) {
             if (current != null) {
@@ -74,6 +74,10 @@ fun ErrorLogScreen(onBack: () -> Unit) {
                 NeonButton("Borrar registro", { confirmClear = true }, icon = R.drawable.ic_delete)
             }
             NeonButton("Actualizar", { reload++ }, icon = R.drawable.ic_refresh)
+            NeonButton("Olvidar apps recordadas", {
+                com.mivisor.app.player.PlayerPreferences(context).clearPreferredApps()
+                android.widget.Toast.makeText(context, "Se volverá a preguntar con qué app abrir cada enlace", android.widget.Toast.LENGTH_SHORT).show()
+            }, icon = R.drawable.ic_delete)
         }
         if (reports.isEmpty()) {
             Column(Modifier.padding(6.dp).neonBox().padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -139,6 +143,7 @@ private fun ReportText(text: String, modifier: Modifier) {
 
 private fun titleOf(f: File) = when {
     f.name.startsWith("crash-") -> "Cierre inesperado"
+    f.name == com.mivisor.app.diagnostics.AceLog.FILE -> "Registro Ace Stream"
     f.name.startsWith("diag-") -> "Última apertura de canal"
     else -> "Error recuperado"
 }

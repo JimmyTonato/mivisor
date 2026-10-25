@@ -73,6 +73,13 @@ class PlayerPreferences(context: Context) {
         scheme?.let { prefs.getString("app_s_$it", null) }
     ).firstOrNull { it.isNotBlank() }
 
+    /** Igual que [preferredPackage] pero diciendo de dónde sale (para el Registro Ace Stream). */
+    fun preferredPackageWithReason(name: String?, group: String?, scheme: String?): Pair<String, String>? = listOfNotNull(
+        name?.let { n -> prefs.getString("app_n_$n", null)?.let { it to "app recordada para el canal «$n»" } },
+        group?.let { g -> prefs.getString("app_g_$g", null)?.let { it to "app recordada para el grupo «$g» (vale para cualquier proveedor con ese grupo)" } },
+        scheme?.let { sc -> prefs.getString("app_s_$sc", null)?.let { it to "app recordada para todos los enlaces $sc://" } }
+    ).firstOrNull { it.first.isNotBlank() }
+
     fun remember(packageName: String, name: String?, group: String?, scheme: String?, scope: RememberScope) {
         val key = when (scope) {
             RememberScope.ONCE -> return

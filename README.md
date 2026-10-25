@@ -397,6 +397,21 @@ Nunca da por bueno un canal solo porque Ace Stream se abra. El Content ID se env
 **Ajustes → Registro de errores → Última apertura de canal** (intent, paquete destino, URI enmascarada) sirve para comparar
 con la app antigua: ambas mandan el mismo `Intent(VIEW, acestream://…)` + NEW_TASK sin extras ni MIME.
 
+## Registro Ace Stream
+
+**Ajustes → Registro de errores → Registro Ace Stream** (`diagnostics/AceLog.kt`, últimas 40 aperturas). MiVisor no puede leer
+el log interno de Ace Stream (Android solo lo permite con ADB), así que guarda todo lo que sí ve en cada apertura de un canal Ace:
+
+- canal, proveedor y **grupo**; Content ID enmascarado y si llega intacto a Ace;
+- **qué app lo abre y por qué**: recordada para el canal, recordada para el **grupo** (vale para cualquier proveedor con ese
+  grupo: "DAZN", "Movistar Deportes"…), recordada para todos los `acestream://`, única app compatible, elegida ahora o el sistema;
+- apps instaladas que abren `acestream://` y la predeterminada del sistema;
+- VPN del proveedor y **VPN activa en la TV**; estado del motor antes de abrir;
+- al volver a MiVisor: cuánto tardaste y estado del motor. Si vuelves en menos de 10 min pregunta **"¿Se ha visto el canal?"**:
+  "No, se quedó cargando" lanza la comprobación real del motor (peers, KB/s, datos) y todo queda anotado.
+
+Botón **Olvidar apps recordadas** en la misma pantalla. "Ver en el móvil (QR)" sirve para pasar el registro.
+
 ## Registro de errores
 
 **Ajustes → Registro de errores**. Si MiVisor se cierra inesperadamente, al volver a abrirla avisa y aquí aparece el detalle:
