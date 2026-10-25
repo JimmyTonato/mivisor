@@ -81,15 +81,28 @@ class DnsTest {
     }
 
     @Test fun raceReturnsFastestAndFallsBack() = runBlocking {
+        // Etapa de respaldo (DoH): gana el más rápido.
         val slow = Fake(2_000) { listOf("slow") }
         val fast = Fake(10) { listOf("fast") }
         val started = System.currentTimeMillis()
-        assertEquals(listOf("fast"), CompositeDnsResolver(listOf(listOf(slow, fast))).resolveTxt("h"))
+        assertEquals(listOf("fast"), CompositeDnsResolver(listOf(listOf(slow, fast)), mergeStages = emptySet()).resolveTxt("h"))
         assertTrue("no debe esperar al lento", System.currentTimeMillis() - started < 1_000)
 
         val broken = Fake(5) { throw IOException("x") }
         val doh = Fake(5) { listOf("doh") }
         assertEquals(listOf("doh"), CompositeDnsResolver(listOf(listOf(broken, broken), listOf(doh))).resolveTxt("h"))
+    }
+
+    /** Como MyLinksPaste: pregunta a Google y a Cloudflare, espera a los dos y junta (Google primero, sin repetidos). */
+    @Test fun firstStageMergesGoogleThenCloudflareLikeOldApp() = runBlocking {
+        val google = Fake(300) { listOf("versionA", "comun") }
+        val cloudflare = Fake(10) { listOf("comun", "versionB") }
+        val resolver = CompositeDnsResolver(listOf(listOf(google, cloudflare)))
+        assertEquals(listOf("versionA", "comun", "versionB"), resolver.resolveTxt("h"))
+        assertTrue(resolver.summary("h")!!.contains("NO coinciden"))
+        // Si uno falla, vale con el otro.
+        val broken = Fake(5) { throw IOException("x") }
+        assertEquals(listOf("comun", "versionB"), CompositeDnsResolver(listOf(listOf(broken, cloudflare))).resolveTxt("h"))
     }
 
     @Test fun nxdomainIsDefinitive() = runBlocking {

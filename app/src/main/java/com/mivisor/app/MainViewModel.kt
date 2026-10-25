@@ -53,6 +53,8 @@ data class ProviderState(
     val loading: Boolean = false,
     val error: UiError? = null,
     val updatedAt: Long = 0L,
+    /** Cómo se obtuvo la lista (servidores DNS y versión elegida). */
+    val sourceInfo: String? = null,
     val offline: Boolean = false,
     val failedRefs: Int = 0,
     /** Abierto con "Abrir" sin guardarlo: desaparece al cerrar MiVisor. */
@@ -286,6 +288,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         android.util.Log.i("MiVisor/Import", catalog.stats.summary())
         updateProvider(id) {
             it.copy(catalog = catalog, loading = false, updatedAt = result.savedAt, offline = result.offline, failedRefs = result.failedRefs,
+                sourceInfo = result.sourceInfo ?: it.sourceInfo,
                 error = null, lastFailure = if (result.offline) it.lastFailure else null)
         }
         regroup()

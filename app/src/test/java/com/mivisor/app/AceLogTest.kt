@@ -77,6 +77,20 @@ class AceLogTest {
         } finally { dir.deleteRecursively() }
     }
 
+    /** Varias versiones de la lista: se elige como MyLinksPaste (más entradas de primer nivel; empate → la primera). */
+    @Test fun choosesListVersionLikeOldApp() {
+        val older = """[{"name":"DAZN","url":"","subLinks":[{"name":"DAZN LaLiga","url":"acestream://${id(20)}"},{"name":"Extra","url":"acestream://${id(21)}"},{"name":"Extra 2","url":"acestream://${id(22)}"}]},{"name":"Eurosport 1","url":"acestream://${id(23)}"}]"""
+        val newer = """[{"name":"DAZN","url":"","subLinks":[{"name":"DAZN LaLiga","url":"acestream://${id(30)}"}]},{"name":"Eurosport 1","url":"acestream://${id(31)}"}]"""
+        // Mismo número de entradas de primer nivel (2): gana la PRIMERA (Google), aunque la otra tenga más canales dentro.
+        val d = PayloadDecoder().decodeDetailed(listOf(newer, older))
+        assertEquals(1, d.chosen)
+        assertEquals(2, d.versions)
+        val laliga = CatalogBuilder.build(d.items).sections.flatMap { it.channels }.first { it.name == "DAZN LaLiga" }
+        assertEquals("acestream://${id(30)}", laliga.url)          // antes MiVisor elegía "older" (más canales) → otro ID
+        assertEquals(1, PayloadDecoder.chooseVersion(listOf(5, 9, 9)))
+        assertEquals(0, PayloadDecoder.chooseVersion(listOf(9, 9)))
+    }
+
     @Test fun asksOnlyWhenComingBackSoon() {
         assertTrue(AceLog.shouldAsk(0, 40_000))
         assertFalse(AceLog.shouldAsk(0, 2 * 60 * 60 * 1000L))               // viste el partido entero: no molesta

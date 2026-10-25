@@ -45,7 +45,9 @@ class StreamRepository(
         val savedAt: Long,
         /** Algún dato es una copia local porque la red falló. */
         val offline: Boolean,
-        val failedRefs: Int
+        val failedRefs: Int,
+        /** Cómo se obtuvo la lista raíz: servidores DNS y versión elegida (diagnóstico; sin datos del código). */
+        val sourceInfo: String? = null
     )
 
     fun isFresh(savedAt: Long): Boolean = clock() - savedAt in 0..freshTtlMs
@@ -57,14 +59,14 @@ class StreamRepository(
         val root = fetch(normalized, rootMode)
         session.track(root)
         val items = expand(root.items, setOf(normalized), 0, session)
-        LoadResult(items, session.oldest, session.offline, session.failedRefs)
+        LoadResult(items, session.oldest, session.offline, session.failedRefs, root.info)
     }
 
     fun clearCache() = cache.clear()
 
     // ---------------------------------------------------------------------------------
 
-    private class Fetched(val items: List<StreamItem>, val savedAt: Long, val offline: Boolean)
+    private class Fetched(val items: List<StreamItem>, val savedAt: Long, val offline: Boolean, val info: String? = null)
 
     private inner class Session(val scope: CoroutineScope, val refMode: Mode) {
         val gate = Semaphore(4)
@@ -106,11 +108,13 @@ class StreamRepository(
         }
 
         return try {
-            val records = resolver.resolveTxt(Codes.hostFor(code, domain))
-            val items = withContext(Dispatchers.Default) { decoder.decode(records) }
+            val host = Codes.hostFor(code, domain)
+            val records = resolver.resolveTxt(host)
+            val decoded = withContext(Dispatchers.Default) { decoder.decodeDetailed(records) }
             val now = clock()
             withContext(Dispatchers.IO) { cache.write(code, records, now) }
-            Fetched(items, now, offline = false)
+            val dns = (resolver as? com.mivisor.app.network.CompositeDnsResolver)?.summary(host)
+            Fetched(decoded.items, now, offline = false, info = listOfNotNull(dns, decoded.summary()).joinToString(" · "))
         } catch (e: CancellationException) {
             throw e
         } catch (e: CodeNotFoundException) {

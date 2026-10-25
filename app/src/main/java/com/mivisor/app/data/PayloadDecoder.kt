@@ -15,29 +15,38 @@ class InvalidPayloadException : Exception("Los datos del código no tienen un fo
  * Decodifica los registros TXT con los mismos formatos que MyLinksPaste:
  * JSON directo, Base64, Base64+GZIP y "mosaico" (el payload repartido en varios TXT).
  *
- * Si hay varios registros válidos por separado se queda con el más completo
- * (igual que la app original: protege de réplicas DNS desactualizadas).
+ * Si hay varios registros válidos por separado (varias versiones de la lista) elige IGUAL que MyLinksPaste 4.6
+ * ("Seleccionada mejor versión DNS entre N opciones", revisado en su bytecode): la que tiene MÁS ENTRADAS DE
+ * PRIMER NIVEL y, si empatan, LA PRIMERA (las de Google van antes que las de Cloudflare).
+ * Antes MiVisor contaba todas las entradas (incluidas las de dentro de los grupos) y podía elegir otra versión,
+ * con otros Content IDs.
  */
 class PayloadDecoder(
     private val gson: Gson = Gson(),
     private val maxBytes: Int = 4 * 1024 * 1024
 ) {
-    fun decode(records: List<String>): List<StreamItem> {
+    /** Resultado con el detalle de la elección (para el diagnóstico). [chosen] empieza en 1; 0 = mosaico. */
+    class Decoded(val items: List<StreamItem>, val versions: Int, val chosen: Int, val sizes: List<Int>) {
+        fun summary(): String = when {
+            chosen == 0 -> "mosaico de ${sizes.size} fragmentos"
+            versions <= 1 -> "1 versión"
+            else -> "$versions versiones (entradas: ${sizes.joinToString("/")}), usada la nº $chosen como MyLinksPaste"
+        }
+    }
+
+    fun decode(records: List<String>): List<StreamItem> = decodeDetailed(records).items
+
+    fun decodeDetailed(records: List<String>): Decoded {
         val cleaned = records.map(::normalize).filter { it.isNotEmpty() }
         if (cleaned.isEmpty()) throw InvalidPayloadException()
 
-        var best: List<StreamItem>? = null
-        var bestSize = -1
-        for (record in cleaned) {
-            val items = tryDecode(record) ?: continue
-            val size = countNodes(items)
-            if (size > bestSize) {
-                best = items; bestSize = size
-            }
+        val versions = cleaned.mapNotNull { record -> tryDecode(record)?.takeIf { it.isNotEmpty() } }
+        if (versions.isNotEmpty()) {
+            val index = chooseVersion(versions.map { it.size })
+            return Decoded(versions[index], versions.size, index + 1, versions.map { it.size })
         }
-        best?.let { return it }
 
-        if (cleaned.size > 1) tryDecode(cleaned.joinToString(""))?.let { return it }
+        if (cleaned.size > 1) tryDecode(cleaned.joinToString(""))?.let { return Decoded(it, 1, 0, cleaned.map { 0 }) }
         throw InvalidPayloadException()
     }
 
@@ -103,8 +112,17 @@ class PayloadDecoder(
             }
         }
 
-    private fun countNodes(items: List<StreamItem>): Int =
-        items.sumOf { 1 + countNodes(it.subLinks.orEmpty()) }
+    companion object {
+        private const val MAX_DEPTH = 12
+
+        /** Índice de la versión elegida: más entradas de primer nivel; a igualdad, la primera (como MyLinksPaste). */
+        fun chooseVersion(topLevelSizes: List<Int>): Int {
+            var best = 0
+            for (i in 1 until topLevelSizes.size) if (topLevelSizes[i] > topLevelSizes[best]) best = i
+            return best
+        }
+    }
+
 
     private fun isGzip(bytes: ByteArray) =
         bytes.size > 2 && bytes[0] == 0x1f.toByte() && bytes[1] == 0x8b.toByte()
@@ -124,7 +142,4 @@ class PayloadDecoder(
         }
     }.getOrNull()
 
-    private companion object {
-        const val MAX_DEPTH = 12
-    }
 }

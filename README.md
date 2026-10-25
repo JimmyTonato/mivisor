@@ -397,6 +397,20 @@ Nunca da por bueno un canal solo porque Ace Stream se abra. El Content ID se env
 **Ajustes → Registro de errores → Última apertura de canal** (intent, paquete destino, URI enmascarada) sirve para comparar
 con la app antigua: ambas mandan el mismo `Intent(VIEW, acestream://…)` + NEW_TASK sin extras ni MIME.
 
+## Lectura de la lista igual que MyLinksPaste (v14)
+
+Revisado en el bytecode de MyLinksPaste 4.6 (`consultarDatos` y `obtenerDatosRecursivo`):
+
+- **DNS**: pregunta a **8.8.8.8 (Google) y 1.1.1.1 (Cloudflare)**, espera a los dos y **junta** sus registros TXT
+  (primero Google, sin repetidos). Solo si ninguno responde, usa DNS por HTTPS. Antes MiVisor se quedaba con el que
+  contestara primero (`network/CompositeDnsResolver.kt`).
+- **Versión de la lista**: si hay varias, la de **más entradas de primer nivel**; a igualdad, **la primera** (la de
+  Google). Antes MiVisor contaba también las entradas de dentro de los grupos (`data/PayloadDecoder.kt`).
+
+Cuando el dueño de la lista la actualiza, Google y Cloudflare pueden tener en caché versiones distintas durante un
+tiempo: con la regla anterior MiVisor podía usar otra versión que la app antigua (mismos nombres, **otros Content IDs**).
+El Registro Ace Stream muestra "Origen de la lista" (respuestas de cada servidor, si coinciden y qué versión se usó).
+
 ## Registro Ace Stream
 
 **Ajustes → Registro de errores → Registro Ace Stream** (`diagnostics/AceLog.kt`, últimas 40 aperturas). MiVisor no puede leer

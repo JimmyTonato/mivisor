@@ -51,7 +51,9 @@ object AceLog {
         /** Antigüedad de la lista del proveedor (los IDs de algunas listas rotan): minutos, ¿copia sin conexión?, último fallo. */
         val listAgeMinutes: Long? = null,
         val listOffline: Boolean = false,
-        val listFailure: String? = null
+        val listFailure: String? = null,
+        val fromActivity: Boolean? = null,
+        val listSource: String? = null
     )
 
     /** Texto de una apertura (puro: se prueba en la JVM). */
@@ -72,7 +74,9 @@ object AceLog {
                     (if (l.listOffline) " · COPIA GUARDADA (no se pudo actualizar)" else "") +
                     (l.listFailure?.let { " · último fallo: $it" } ?: ""))
             }
-            appendLine("Envío: ${if (l.httpEngineMode) "URL HTTP del motor local (Ajustes)" else "Intent VIEW acestream:// + NEW_TASK (igual que MyLinksPaste)"}")
+            l.listSource?.let { appendLine("Origen de la lista: $it") }
+            appendLine("Envío: ${if (l.httpEngineMode) "URL HTTP del motor local (Ajustes)" else "Intent VIEW acestream:// + NEW_TASK (igual que MyLinksPaste)"}" +
+                when (l.fromActivity) { true -> " · lanzado desde la Activity (igual que MyLinksPaste)"; false -> " · lanzado desde el contexto de la app"; null -> "" })
             appendLine("App que lo abre: ${l.targetPackage ?: "la decide el sistema"} — ${l.reason}")
             appendLine("Apps para acestream:// en esta TV: ${l.handlers.ifEmpty { listOf("ninguna") }.joinToString()}")
             appendLine("Predeterminada del sistema: ${l.systemDefault ?: "ninguna (pregunta)"}")

@@ -16,6 +16,12 @@ import java.util.Locale
  */
 class StreamLauncher(context: Context) {
     private val app = context.applicationContext
+    /**
+     * Desde dónde se lanza la app externa. MyLinksPaste lo hace desde su Activity (MainActivity.startActivity);
+     * MiVisor hace lo mismo cuando se crea con la Activity (MiVisorApp), y solo usa el contexto de la app si no la hay.
+     */
+    private val caller: Context = if (context is android.app.Activity) context else app
+    val launchesFromActivity: Boolean get() = caller !== app
     val preferences = PlayerPreferences(app)
 
     class AppChoice(val packageName: String, val label: String)
@@ -119,7 +125,7 @@ class StreamLauncher(context: Context) {
         val target = Intent(intent)
         if (!packageName.isNullOrBlank()) target.setPackage(packageName)
         try {
-            app.startActivity(target)
+            caller.startActivity(target)
         } catch (e: ActivityNotFoundException) {
             throw IllegalStateException("No hay ninguna app instalada que pueda abrir este enlace", e)
         } catch (e: SecurityException) {

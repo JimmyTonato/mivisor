@@ -175,6 +175,8 @@ fun MiVisorApp(vm: MainViewModel) {
             engineOrigin = quick.engineOrigin(), aceAutoStart = launcher.preferences.aceAutoStart,
             listAgeMinutes = provider?.updatedAt?.takeIf { it > 0 }?.let { (System.currentTimeMillis() - it).coerceAtLeast(0) / 60_000 },
             listOffline = provider?.offline == true,
+            fromActivity = launcher.launchesFromActivity,
+            listSource = provider?.sourceInfo,
             listFailure = provider?.lastFailure?.let { "${it.kind.name.lowercase()} (${it.title})" }
         )))
         aceLaunched = Triple(ch, System.currentTimeMillis(), vpn)
