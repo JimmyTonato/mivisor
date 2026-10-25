@@ -49,6 +49,18 @@ object CrashReporter {
         runCatching { write(File(context.filesDir, DIR).apply { mkdirs() }, Thread.currentThread(), error, fatal = false, where = where) }
     }
 
+    /**
+     * Último diagnóstico de apertura de un canal (se sobrescribe; no ocupa el hueco de los cierres).
+     * El texto ya llega con los Content IDs enmascarados y además se limpia.
+     */
+    fun saveDiagnostic(context: Context, text: String) {
+        runCatching {
+            val d = File(context.filesDir, DIR).apply { mkdirs() }
+            val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+            File(d, "diag-last.txt").writeText(LogSanitizer.clean("$text\nFecha: $stamp\nVersión: ${BuildConfig.VERSION_NAME}\n"))
+        }
+    }
+
     fun reports(context: Context): List<File> =
         File(context.filesDir, DIR).listFiles { f -> f.name.endsWith(".txt") }?.sortedByDescending { it.name }.orEmpty()
 
@@ -84,6 +96,6 @@ object CrashReporter {
             append(trace)
         }
         File(d, "${if (fatal) "crash" else "error"}-$stamp.txt").writeText(LogSanitizer.clean(report))
-        d.listFiles()?.sortedByDescending { it.name }?.drop(MAX_FILES)?.forEach { it.delete() }
+        d.listFiles()?.filter { !it.name.startsWith("diag-") }?.sortedByDescending { it.name }?.drop(MAX_FILES)?.forEach { it.delete() }
     }
 }

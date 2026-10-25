@@ -152,7 +152,10 @@ fun MiVisorApp(vm: MainViewModel) {
 
     fun launchNow(request: PlayRequest) {
         try {
-            when (val decision = launcher.open(request.channel, request.forceChooser)) {
+            val prepared = request.channel.kind == ChannelKind.ACE && launcher.preferences.customAceEnabled
+            val decision = launcher.open(request.channel, request.forceChooser, engineState = services.aceStatus.phase.name, enginePrepared = prepared)
+            launcher.lastReport?.let { CrashReporter.saveDiagnostic(context, it) }
+            when (decision) {
                 is StreamLauncher.Decision.Choose -> picker = PickerState(request, decision.intent, decision.apps)
                 StreamLauncher.Decision.Launched -> vm.recordPlayback(request)
             }
@@ -164,7 +167,9 @@ fun MiVisorApp(vm: MainViewModel) {
     /** OK = quiero ver esto: Ace y VPN se preparan solos si hacen falta y luego se abre el mismo contenido. */
     fun play(request: PlayRequest) {
         val needs = PlaybackNeeds(
-            ace = request.channel.kind == ChannelKind.ACE,
+            // acestream:// se entrega a la app de Ace Stream, que arranca SU motor (igual que la app antigua).
+            // Solo con el "motor local (HTTP)" de Ajustes hay que tener el motor listo antes de abrir.
+            ace = request.channel.kind == ChannelKind.ACE && launcher.preferences.customAceEnabled,
             vpn = launcher.preferences.vpnFor(request.channel.providerId)
         )
         quick.play(request, needs)
@@ -294,7 +299,8 @@ fun MiVisorApp(vm: MainViewModel) {
                             onManageProviders = { push(Route.Providers, null) },
                             onOpenApiServices = { push(Route.ApiServices, null) },
                             onOpenErrorLog = { push(Route.ErrorLog, null) },
-                            autoFocus = contentFocus
+                            autoFocus = contentFocus,
+                            onImportRuleChanged = vm::rebuildAll
                         )
                     }
                     Route.Calendar -> CalendarScreen(

@@ -76,7 +76,8 @@ class ChannelMatcher(channels: List<Channel>) {
         )
 
         fun tokens(name: String): List<String> {
-            var text = Normalizer.normalize(name.lowercase(), Normalizer.Form.NFD)
+            // Primero la normalización GENERAL (Unicode decorativo, invisibles, emojis…); después los alias.
+            var text = Normalizer.normalize(ChannelNameNormalizer.display(name).lowercase(), Normalizer.Form.NFD)
                 .replace(Regex("\\p{Mn}+"), "")
             ALIASES.forEach { (from, to) -> text = text.replace(from, " $to ") }
             return text.replace(Regex("[^a-z0-9]+"), " ")

@@ -137,11 +137,16 @@ private fun ReportText(text: String, modifier: Modifier) {
     }
 }
 
-private fun titleOf(f: File) = if (f.name.startsWith("crash-")) "Cierre inesperado" else "Error recuperado"
+private fun titleOf(f: File) = when {
+    f.name.startsWith("crash-") -> "Cierre inesperado"
+    f.name.startsWith("diag-") -> "Última apertura de canal"
+    else -> "Error recuperado"
+}
 
 /** crash-20261024-213005-123.txt → 24/10/2026 21:30:05 */
 private fun dateOf(f: File): String {
-    val m = Regex("""(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})""").find(f.name) ?: return f.name
+    val m = Regex("""(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})""").find(f.name)
+        ?: return java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", java.util.Locale.US).format(java.util.Date(f.lastModified()))
     val (y, mo, d, h, mi, s) = m.destructured
     return "$d/$mo/$y $h:$mi:$s"
 }

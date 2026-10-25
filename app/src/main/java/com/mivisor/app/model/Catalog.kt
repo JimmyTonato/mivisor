@@ -39,9 +39,25 @@ class Section(
     val channels: List<Channel>
 )
 
+/** Resumen de una importación (sin URLs ni Content IDs). */
+data class ImportStats(
+    /** Elementos leídos que podían ser canal (no cuentan los grupos sin enlace propio). */
+    val entries: Int = 0,
+    /** Canales Ace Stream válidos importados. */
+    val valid: Int = 0,
+    /** Entradas descartadas: separadores, títulos, webs, URL vacía u otros enlaces que no son Ace Stream. */
+    val ignored: Int = 0,
+    /** Nombres que cambiaron al normalizarlos. */
+    val normalized: Int = 0
+) {
+    fun summary(): String =
+        "Imported entries: $entries · Valid Ace Stream channels: $valid · Ignored non-AceStream entries: $ignored · Normalized names: $normalized"
+}
+
 class Catalog(
     val sections: List<Section>,
-    val channelCount: Int
+    val channelCount: Int,
+    val stats: ImportStats = ImportStats()
 ) {
     val isEmpty: Boolean get() = channelCount == 0
 

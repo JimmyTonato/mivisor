@@ -179,6 +179,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Cambió una regla de importación: se reconstruyen los catálogos (desde la caché si está fresca). */
+    fun rebuildAll() {
+        _ui.value.providers.orEmpty().forEach { load(it.source, force = false) }
+    }
+
     fun removeSource(source: SourceProfile) {
         viewModelScope.launch {
             sourceStore.remove(source.id)
@@ -276,7 +281,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun publish(id: String, result: StreamRepository.LoadResult) {
-        val catalog = withContext(Dispatchers.Default) { CatalogBuilder.build(result.items) }
+        val catalog = withContext(Dispatchers.Default) { CatalogBuilder.build(result.items, aceOnly = preferences.aceOnlyImport) }
+        // Resumen de importación: solo números (nunca nombres, URLs ni Content IDs).
+        android.util.Log.i("MiVisor/Import", catalog.stats.summary())
         updateProvider(id) {
             it.copy(catalog = catalog, loading = false, updatedAt = result.savedAt, offline = result.offline, failedRefs = result.failedRefs,
                 error = null, lastFailure = if (result.offline) it.lastFailure else null)

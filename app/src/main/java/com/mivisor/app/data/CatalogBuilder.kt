@@ -1,6 +1,7 @@
 package com.mivisor.app.data
 
 import com.mivisor.app.model.Catalog
+import com.mivisor.app.model.ImportStats
 import com.mivisor.app.model.Channel
 import com.mivisor.app.model.ChannelKind
 import com.mivisor.app.model.Section
@@ -21,15 +22,34 @@ import com.mivisor.app.model.StreamItem
 object CatalogBuilder {
     private const val MAX_DEPTH = 10
 
-    fun build(items: List<StreamItem>): Catalog {
+    /**
+     * Importación: elemento → limpiar URL (solo extremos) → ¿Ace Stream válido? → NO: descartar como canal
+     * → SÍ: normalizar el nombre ([ChannelNameNormalizer]) → canal. El nombre y la URL nunca se mezclan.
+     *
+     * [aceOnly] = true (por defecto): solo los Ace Stream son canales; separadores, títulos, webs, URL vacía y
+     * cualquier otro enlace quedan fuera. Con false se aceptan también otros enlaces (comportamiento anterior).
+     * Mismo nombre con distinto Content ID = dos canales (dos fuentes del mismo canal lógico): no se borra ninguno.
+     */
+    fun build(items: List<StreamItem>, aceOnly: Boolean = true): Catalog {
         val sections = ArrayList<Section>()
         val root = ArrayList<Channel>()
         var sectionIndex = 1
         var channelCount = 0
+        var entries = 0
+        var ignored = 0
+        var normalized = 0
 
-        fun channel(item: StreamItem, group: String?, sectionId: String, index: Int): Channel {
-            val name = item.name?.trim().takeUnless { it.isNullOrEmpty() } ?: "Canal ${index + 1}"
-            val url = item.url!!.trim()
+        /** Canal o null si la entrada no es un canal. */
+        fun channel(item: StreamItem, group: String?, sectionId: String, index: Int): Channel? {
+            entries++
+            val url = if (aceOnly) AceStreamLink.parse(item.url) else (AceStreamLink.parse(item.url) ?: AceStreamLink.clean(item.url).takeIf { it.isNotEmpty() })
+            if (url == null) {
+                ignored++
+                return null
+            }
+            val clean = ChannelNameNormalizer.display(item.name)
+            if (ChannelNameNormalizer.changed(item.name, clean)) normalized++
+            val name = clean.ifEmpty { "Canal ${index + 1}" }
             return Channel(
                 id = "$sectionId:$index",
                 name = name,
@@ -42,18 +62,19 @@ object CatalogBuilder {
         }
 
         fun collect(group: StreamItem, parents: List<String>, depth: Int) {
-            val groupName = group.name?.trim().takeUnless { it.isNullOrEmpty() }
-                ?: group.ref?.trim().takeUnless { it.isNullOrEmpty() }
+            val groupName = ChannelNameNormalizer.display(group.name).ifEmpty { null }
+                ?: ChannelNameNormalizer.display(group.ref).ifEmpty { null }
                 ?: "Grupo"
             val path = parents + groupName
             val sectionId = "s${sectionIndex++}"
             val direct = ArrayList<Channel>()
-            if (group.hasUrl) direct += channel(group, groupName, sectionId, direct.size)
+            if (group.hasUrl) channel(group, groupName, sectionId, direct.size)?.let { direct += it }
             val nested = ArrayList<StreamItem>()
             for (child in group.subLinks.orEmpty()) {
                 when {
                     child.hasChildren && depth < MAX_DEPTH -> nested += child
-                    child.hasUrl -> direct += channel(child, groupName, sectionId, direct.size)
+                    child.hasChildren -> Unit
+                    else -> channel(child, groupName, sectionId, direct.size)?.let { direct += it }
                 }
             }
             if (direct.isNotEmpty()) {
@@ -66,14 +87,14 @@ object CatalogBuilder {
         for (item in items) {
             when {
                 item.hasChildren -> collect(item, emptyList(), 0)
-                item.hasUrl -> root += channel(item, null, "s0", root.size)
+                else -> channel(item, null, "s0", root.size)?.let { root += it }
             }
         }
         if (root.isNotEmpty()) {
             sections.add(0, Section("s0", "Canales", root))
             channelCount += root.size
         }
-        return Catalog(sections, channelCount)
+        return Catalog(sections, channelCount, ImportStats(entries, channelCount, ignored, normalized))
     }
 
     const val TINTS = 8

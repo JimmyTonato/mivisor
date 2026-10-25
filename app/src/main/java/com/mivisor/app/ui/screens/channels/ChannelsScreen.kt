@@ -98,7 +98,8 @@ fun ChannelsScreen(
         PageHeader(
             title = "Canales",
             subtitle = if (selected == null) "Explora todos los canales disponibles organizados por proveedor."
-            else "Proveedor: ${selected.name} · ${groups.size} canales",
+            else "Proveedor: ${selected.name} · ${groups.size} canales" +
+                (selected.catalog?.stats?.takeIf { it.ignored > 0 }?.let { " · ${it.ignored} entradas ignoradas (no son Ace Stream)" } ?: ""),
             meta = if (providers.isEmpty()) null else "${providers.size} ${if (providers.size == 1) "proveedor" else "proveedores"}  ·  ${library.channelTotal} canales" +
                 "  ·  " + updateLine(library, selected),
             metaColor = if ((selected?.let { listOf(it) } ?: providers).any { it.lastFailure != null }) Ui.Amber else Neon.Faint

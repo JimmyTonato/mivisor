@@ -25,49 +25,62 @@ class StreamLauncher(context: Context) {
         class Choose(val intent: Intent, val apps: List<AppChoice>) : Decision()
     }
 
-    fun buildIntent(channel: Channel): Intent {
-        val raw = channel.url.trim()
-        require(raw.isNotEmpty()) { "Este canal no tiene enlace" }
-        val scheme = Uri.parse(raw).scheme?.lowercase(Locale.ROOT).orEmpty()
-        val finalUrl = when {
-            scheme == "acestream" && preferences.customAceEnabled -> {
-                val id = raw.replaceFirst(Regex("^acestream:(//)?", RegexOption.IGNORE_CASE), "")
-                preferences.customAceTemplate.ifBlank { BuildConfig.ACESTREAM_TEMPLATE }.replace("{id}", id)
-            }
-            scheme == "magnet" && preferences.customMagnetEnabled ->
-                preferences.customMagnetTemplate.ifBlank { BuildConfig.MAGNET_TEMPLATE }
-                    .replace("{id}", Uri.encode(raw))
-            else -> raw
-        }
-        val uri = Uri.parse(finalUrl)
-        return Intent(Intent.ACTION_VIEW).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            val mime = mimeFor(finalUrl)
-            if (mime != null) setDataAndType(uri, mime) else data = uri
-            putExtra(Intent.EXTRA_TITLE, channel.name)
-            putExtra("title", channel.name) // VLC, MX Player y similares
+    /** Especificación pura (misma para pruebas y para el Intent real). */
+    fun spec(channel: Channel): LaunchSpec = LaunchPlanner.plan(
+        url = channel.url,
+        title = channel.name,
+        customAce = preferences.customAceEnabled,
+        aceTemplate = preferences.customAceTemplate.ifBlank { BuildConfig.ACESTREAM_TEMPLATE },
+        customMagnet = preferences.customMagnetEnabled,
+        magnetTemplate = preferences.customMagnetTemplate.ifBlank { BuildConfig.MAGNET_TEMPLATE },
+        encode = { Uri.encode(it) }
+    )
+
+    fun buildIntent(channel: Channel): Intent = intentFor(spec(channel))
+
+    private fun intentFor(spec: LaunchSpec): Intent {
+        // Uri.parse NO re-codifica: el Content ID llega tal cual al reproductor.
+        val uri = Uri.parse(spec.uri)
+        return Intent(spec.action, uri).apply {
+            addFlags(spec.flags)
+            if (spec.mime != null) setDataAndType(uri, spec.mime)
+            spec.extras.forEach { (k, v) -> putExtra(k, v) }
         }
     }
 
+    /** Último informe de apertura (para Registro de errores). Content IDs enmascarados. */
+    var lastReport: String? = null
+        private set
+
     /** Lanza directamente si puede; si hay que elegir, devuelve la lista de apps. */
-    fun open(channel: Channel, forceChooser: Boolean = false): Decision {
-        val intent = buildIntent(channel)
-        val scheme = intent.data?.scheme?.lowercase(Locale.ROOT)
+    fun open(channel: Channel, forceChooser: Boolean = false, engineState: String = "desconocido", enginePrepared: Boolean = false): Decision {
+        val spec = spec(channel)
+        val intent = intentFor(spec)
+        val scheme = spec.scheme
+        fun report(target: String) {
+            lastReport = LaunchReport.build(
+                channel.name, channel.source, channel.url, spec,
+                LegacyMyLinksPaste.plan(channel.url, preferences.customAceEnabled, preferences.customAceTemplate.ifBlank { BuildConfig.ACESTREAM_TEMPLATE }),
+                target, enginePrepared, engineState
+            )
+        }
         if (!forceChooser) {
             if (!preferences.selectorEnabled || scheme == "tvgram" || scheme == "tg") {
+                report("el sistema (app predeterminada para $scheme)")
                 launch(intent); return Decision.Launched
             }
             preferences.preferredPackage(channel.name, channel.group, scheme)
                 ?.takeIf(::isInstalled)
                 ?.let { pkg ->
+                    report("$pkg (app recordada)")
                     if (runCatching { launch(intent, pkg) }.isSuccess) return Decision.Launched
                 }
         }
         val apps = compatibleApps(intent)
         return when {
             apps.isEmpty() -> throw IllegalStateException("No hay ninguna app instalada que pueda abrir este enlace")
-            apps.size == 1 && !forceChooser -> { launch(intent, apps[0].packageName); Decision.Launched }
-            else -> Decision.Choose(intent, apps)
+            apps.size == 1 && !forceChooser -> { report("${apps[0].packageName} (única app compatible)"); launch(intent, apps[0].packageName); Decision.Launched }
+            else -> { report("elegida por el usuario entre ${apps.size} apps"); Decision.Choose(intent, apps) }
         }
     }
 
@@ -121,17 +134,4 @@ class StreamLauncher(context: Context) {
         false
     }
 
-    private fun mimeFor(url: String): String? {
-        val path = url.lowercase(Locale.ROOT).substringBefore('?')
-        return when {
-            ".m3u8" in path -> "application/vnd.apple.mpegurl"
-            path.endsWith(".m3u") -> "audio/x-mpegurl"
-            path.endsWith(".mp4") -> "video/mp4"
-            path.endsWith(".mkv") -> "video/x-matroska"
-            path.endsWith(".ts") -> "video/mp2t"
-            path.endsWith(".mpd") -> "application/dash+xml"
-            path.endsWith(".webm") -> "video/webm"
-            else -> null
-        }
-    }
 }

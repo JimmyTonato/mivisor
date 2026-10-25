@@ -87,7 +87,8 @@ fun SettingsScreen(
     onManageProviders: () -> Unit,
     onOpenApiServices: () -> Unit,
     onOpenErrorLog: () -> Unit,
-    autoFocus: Boolean
+    autoFocus: Boolean,
+    onImportRuleChanged: () -> Unit = {}
 ) {
     val layout = LocalAppLayout.current
     val first = remember { FocusRequester() }
@@ -101,7 +102,7 @@ fun SettingsScreen(
                 }
             }
             Content(section, prefs, animations, onAnimationsChange, services, onServiceOk, onPreviewAce, onPreviewWarp,
-                onClearCache, onClearHistory, onManageProviders, onOpenApiServices, onOpenErrorLog, Modifier.weight(1f))
+                onClearCache, onClearHistory, onManageProviders, onOpenApiServices, onOpenErrorLog, onImportRuleChanged, Modifier.weight(1f))
         } else {
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(Modifier.width(176.dp).fillMaxHeight().padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -110,7 +111,7 @@ fun SettingsScreen(
                     }
                 }
                 Content(section, prefs, animations, onAnimationsChange, services, onServiceOk, onPreviewAce, onPreviewWarp,
-                    onClearCache, onClearHistory, onManageProviders, onOpenApiServices, onOpenErrorLog, Modifier.weight(1f).fillMaxHeight())
+                    onClearCache, onClearHistory, onManageProviders, onOpenApiServices, onOpenErrorLog, onImportRuleChanged, Modifier.weight(1f).fillMaxHeight())
             }
         }
     }
@@ -151,6 +152,7 @@ private fun Content(
     onManageProviders: () -> Unit,
     onOpenApiServices: () -> Unit,
     onOpenErrorLog: () -> Unit,
+    onImportRuleChanged: () -> Unit,
     modifier: Modifier
 ) {
     val context = LocalContext.current
@@ -219,7 +221,13 @@ private fun Content(
                 SecondaryButton("Ver estado de las fuentes", onOpenApiServices, icon = R.drawable.ic_list)
             }
             SettingsSection.CHANNELS -> {
+                var aceOnly by remember { mutableStateOf(prefs.aceOnlyImport) }
                 Heading("Canales")
+                ToggleRow(
+                    "Importar solo canales Ace Stream", aceOnly,
+                    { aceOnly = !aceOnly; prefs.aceOnlyImport = aceOnly; onImportRuleChanged() },
+                    description = "Separadores, títulos, webs y otros enlaces no se consideran canales. Desactívalo si tus proveedores traen también HLS u otros enlaces."
+                )
                 SecondaryButton("Gestionar proveedores", onManageProviders, icon = R.drawable.ic_edit)
                 Hint("Ordena, renombra o elimina proveedores y marca cuáles necesitan VPN.")
                 SecondaryButton("Borrar caché de canales", onClearCache, icon = R.drawable.ic_delete)

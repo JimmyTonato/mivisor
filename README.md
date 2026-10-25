@@ -309,6 +309,28 @@ Navegación lateral: **Inicio · En directo · Agenda · Canales · Historial ·
   todos los estados sin tocar nada real, y las fuentes de datos de la agenda) · Canales · Datos · Sistema (registro de errores).
 - Sin `focusRestorer` en listas anidadas (sospechoso del cierre al pulsar ▶).
 
+## Importación de canales (v13)
+
+Pipeline: elemento → limpiar la URL (solo extremos) → **¿Ace Stream válido?** → NO: no es canal → SÍ: normalizar nombre →
+alias → catálogo → ChannelMatcher / UI / reproducción. El nombre y la URL no se mezclan nunca.
+
+- **`data/ChannelNameNormalizer`** (único punto para todos los nombres y títulos de grupo): letras decorativas por rangos
+  Unicode (🄰 🅰 🅐 🇦, versalitas) → A–Z, **NFKC** (Ⓓ, ＤＡＺＮ, 𝐃𝐀𝐙𝐍…), fuera invisibles (Cf, selectores de variación, keycaps),
+  emojis/símbolos/separadores → espacio, espacios y saltos colapsados, separadores colgantes fuera. `matchKey` añade minúsculas y
+  sin acentos. Los alias (M+ = Movistar, La Liga = LaLiga…) siguen en `ChannelMatcher`, **después** de normalizar.
+- **`data/AceStreamLink`**: canal = `acestream://` + Content ID de 40 hex (o el Content ID puro, validado). http/https nunca se
+  convierte. Solo se limpian espacios, `\r`, `\n` e invisibles de los extremos; el Content ID no se toca.
+- Separadores, títulos, webs, URL vacía y otros enlaces se descartan (Ajustes → Canales → "Importar solo canales Ace Stream",
+  activado por defecto). Resumen en Logcat `MiVisor/Import`: entradas, válidos, ignorados, nombres normalizados (sin IDs).
+- Mismo nombre con distinto Content ID = varias fuentes del mismo canal (no se borra ninguna).
+
+## Apertura de Ace Stream (v13)
+
+Ahora es idéntica a MyLinksPaste 4.6 (comparado con su bytecode): `Intent(VIEW, Uri.parse(url))` + `FLAG_ACTIVITY_NEW_TASK`,
+sin MIME ni extras, URI exacta. MiVisor ya no arranca el motor por su cuenta antes de abrir `acestream://` (lo hace la app de
+Ace Stream, como antes); solo lo prepara si está activado el "motor local (HTTP)". Cada apertura deja un diagnóstico de 15 puntos
+(Content IDs enmascarados) en Ajustes → Sistema → Registro de errores → "Última apertura de canal".
+
 ## Editar con móvil (QR)
 
 En el formulario **Añadir / Editar proveedor** (Título + Código), columna derecha: **Editar con móvil**.

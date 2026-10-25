@@ -58,7 +58,7 @@ class RepositoryTest {
         assertEquals(1, resolver.calls.count { it == "root.elcano.top" })
         assertFalse(result.offline)
 
-        val catalog = CatalogBuilder.build(result.items)
+        val catalog = CatalogBuilder.build(result.items, aceOnly = false)
         val titles = catalog.sections.map { it.title }
         assertEquals(listOf("Canales", "Fútbol", "Fútbol · Copa", "Bucle"), titles)
         assertEquals(4, catalog.channelCount)
@@ -103,7 +103,7 @@ class RepositoryTest {
             StreamItem("Sin url"),
             StreamItem("Vacío", subLinks = emptyList())
         )
-        val catalog = CatalogBuilder.build(items)
+        val catalog = CatalogBuilder.build(items, aceOnly = false)
         val ids = catalog.sections.flatMap { s -> s.channels.map { it.id } } + catalog.sections.map { it.id }
         assertEquals(ids.size, ids.toSet().size)
         assertEquals(4, catalog.channelCount)

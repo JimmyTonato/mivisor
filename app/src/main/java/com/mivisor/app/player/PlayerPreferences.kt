@@ -52,6 +52,11 @@ class PlayerPreferences(context: Context) {
         prefs.edit().putStringSet("vpn_providers", current).apply()
     }
 
+    /** Importación: solo las entradas con un Ace Stream válido son canales (separadores, webs… fuera). */
+    var aceOnlyImport: Boolean
+        get() = prefs.getBoolean("import_ace_only", true)
+        set(value) = prefs.edit().putBoolean("import_ace_only", value).apply()
+
     /** Iniciar Ace Stream al abrir MiVisor. */
     var aceAutoStart: Boolean
         get() = prefs.getBoolean("svc_ace_auto", false)
