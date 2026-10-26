@@ -1,17 +1,27 @@
 package com.mivisor.acepoc;
 
 import android.app.Activity;
+import android.app.Dialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
@@ -25,7 +35,10 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -39,12 +52,15 @@ public class MainActivity extends Activity {
     private static final String HOST = "127.0.0.1";
     private static final int PORT = 16900;
     private static final String BASE = "http://" + HOST + ":" + PORT;
-    private static final long SOURCE_TIMEOUT_MS = 35000L;
+    private static final long SOURCE_TIMEOUT_MS = 50000L;
     private static final Pattern HEX40 = Pattern.compile("^[0-9a-fA-F]{40}$");
+    private static final int MAX_LOG_LINES = 700;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newCachedThreadPool();
     private final AtomicInteger attemptGeneration = new AtomicInteger();
+    private final Object logLock = new Object();
+    private final ArrayDeque<String> logLines = new ArrayDeque<>();
 
     private EditText input;
     private TextView engineState;
@@ -53,12 +69,15 @@ public class MainActivity extends Activity {
     private Button autoButton;
     private Button nextButton;
     private Button stopButton;
+    private Button settingsButton;
     private PlayerView playerView;
     private ExoPlayer player;
 
     private Process engineProcess;
     private volatile boolean engineReady = false;
     private volatile String lastEngineLog = "";
+    private volatile boolean logsEnabled = true;
+    private volatile boolean logAutoScroll = true;
 
     private final List<String> sources = new ArrayList<>();
     private int currentIndex = -1;
@@ -66,12 +85,26 @@ public class MainActivity extends Activity {
     private boolean sourceAccepted = false;
     private String currentId = null;
     private String currentTarget = null;
-    private int currentStrategy = 0; // 0 = resolver Content ID; 1 = swarm directo
     private Runnable timeoutRunnable;
+
+    private SharedPreferences prefs;
+    private String profile = "balanced";
+
+    private Dialog settingsDialog;
+    private TextView settingsProfileText;
+    private TextView logText;
+    private ScrollView logScroll;
+    private CheckBox logsCheck;
+    private CheckBox autoScrollCheck;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        prefs = getSharedPreferences("p2p_test_v3", MODE_PRIVATE);
+        profile = prefs.getString("profile", "balanced");
+        logsEnabled = prefs.getBoolean("logs_enabled", true);
+        logAutoScroll = prefs.getBoolean("logs_autoscroll", true);
+
         buildUi();
         buildPlayer();
         startEngine();
@@ -81,20 +114,27 @@ public class MainActivity extends Activity {
     private void buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(22), dp(16), dp(22), dp(16));
+        root.setPadding(dp(20), dp(12), dp(20), dp(12));
         root.setBackgroundColor(Color.rgb(12, 15, 22));
 
-        TextView title = text("MiVisor · P2P Test", 24, Color.WHITE);
-        title.setPadding(0, 0, 0, dp(8));
-        root.addView(title, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView title = text("MiVisor · P2P Test v3", 24, Color.WHITE);
+        header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        settingsButton = new Button(this);
+        settingsButton.setText("AJUSTES / LOGS");
+        settingsButton.setOnClickListener(v -> showSettingsDialog());
+        header.addView(settingsButton);
+        root.addView(header);
 
         TextView help = text(
                 "Pega uno o varios Content ID / acestream:// (uno por línea). " +
-                "La prueba NO abre la app Ace Stream. Primero resuelve el Content ID al descriptor " +
-                "de transporte y después entra al P2P; si falla, prueba también el ID como swarm directo.",
-                14, Color.LTGRAY);
-        help.setPadding(0, 0, 0, dp(8));
+                "Resuelve descriptor, entra al P2P y mantiene la primera fuente que llegue a vídeo.",
+                13, Color.LTGRAY);
+        help.setPadding(0, dp(4), 0, dp(8));
         root.addView(help);
 
         input = new EditText(this);
@@ -113,7 +153,7 @@ public class MainActivity extends Activity {
         LinearLayout buttons = new LinearLayout(this);
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         buttons.setGravity(Gravity.START);
-        buttons.setPadding(0, dp(10), 0, dp(8));
+        buttons.setPadding(0, dp(8), 0, dp(6));
 
         autoButton = new Button(this);
         autoButton.setText("PROBAR AUTOMÁTICAMENTE");
@@ -147,7 +187,7 @@ public class MainActivity extends Activity {
         playerView.setBackgroundColor(Color.BLACK);
         LinearLayout.LayoutParams playerLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
-        playerLp.topMargin = dp(10);
+        playerLp.topMargin = dp(8);
         root.addView(playerView, playerLp);
 
         setContentView(root);
@@ -171,17 +211,18 @@ public class MainActivity extends Activity {
                     sourceAccepted = true;
                     autoSearching = false;
                     cancelTimeout();
-                    final int idx = currentIndex;
-                    String strategy = currentStrategy == 0 ? "descriptor resuelto" : "P2P directo";
+                    int idx = currentIndex;
                     sourceState.setText("✓ Fuente " + (idx + 1) + " de " + sources.size() +
-                            " seleccionada · " + strategy + " · preview activa");
+                            " · descriptor resuelto · preview activa");
                     sourceState.setTextColor(Color.rgb(95, 220, 120));
                     nextButton.setEnabled(idx + 1 < sources.size());
+                    addAppLog("PLAYBACK READY · fuente " + (idx + 1) + "/" + sources.size());
                 }
             }
 
             @Override
             public void onPlayerError(PlaybackException error) {
+                addAppLog("PLAYER ERROR · " + shortMessage(error.getMessage()));
                 if (currentId != null && !sourceAccepted) {
                     failCurrent("El reproductor no recibió vídeo: " + shortMessage(error.getMessage()));
                 }
@@ -190,17 +231,29 @@ public class MainActivity extends Activity {
     }
 
     private void startEngine() {
+        stopEngineOnly();
+        engineReady = false;
+        autoButton.setEnabled(false);
         engineState.setText("Motor: arrancando núcleo P2P local...");
+        engineState.setTextColor(Color.YELLOW);
+        addAppLog("ENGINE START · perfil=" + profile);
+
         io.execute(() -> {
             try {
                 String nativeDir = getApplicationInfo().nativeLibraryDir;
                 String binary = nativeDir + "/liboutpace.so";
 
-                ProcessBuilder pb = new ProcessBuilder(binary);
+                ProcessBuilder pb = new ProcessBuilder(binary, "serve");
                 pb.redirectErrorStream(true);
+
                 pb.environment().put("OUTPACE_BIND", HOST + ":" + PORT);
                 pb.environment().put("OUTPACE_DATA_DIR", getFilesDir().getAbsolutePath() + "/outpace");
                 pb.environment().put("HOME", getFilesDir().getAbsolutePath());
+
+                // Resolver de Content ID: catálogo firmado primero; BEP-9 queda como fallback.
+                pb.environment().put("OUTPACE_BEP9_CONTENT_ID_FALLBACK", "1");
+
+                applyProfileEnvironment(pb, profile);
                 engineProcess = pb.start();
 
                 Thread logThread = new Thread(() -> {
@@ -209,33 +262,37 @@ public class MainActivity extends Activity {
                         String line;
                         while ((line = br.readLine()) != null) {
                             lastEngineLog = line;
+                            addEngineLog(line);
                         }
-                    } catch (Exception ignored) {
+                    } catch (Exception e) {
+                        addAppLog("LOG READER ERROR · " + shortMessage(e.toString()));
                     }
                 }, "outpace-log");
                 logThread.setDaemon(true);
                 logThread.start();
 
                 boolean ok = false;
-                for (int i = 0; i < 30 && engineProcess.isAlive(); i++) {
+                for (int i = 0; i < 50 && engineProcess.isAlive(); i++) {
                     if (healthCheck()) {
                         ok = true;
                         break;
                     }
-                    Thread.sleep(500);
+                    Thread.sleep(400);
                 }
 
                 final boolean ready = ok;
                 main.post(() -> {
                     engineReady = ready;
                     if (ready) {
-                        engineState.setText("Motor: ✓ P2P local preparado · sin abrir Ace Stream");
+                        engineState.setText("Motor: ✓ preparado · perfil " + profileLabel(profile));
                         engineState.setTextColor(Color.rgb(95, 220, 120));
                         autoButton.setEnabled(true);
+                        addAppLog("ENGINE READY");
                     } else {
                         engineState.setText("Motor: ✕ no pudo iniciarse");
                         engineState.setTextColor(Color.rgb(255, 110, 110));
                         diagnostics.setText("Último mensaje: " + shortMessage(lastEngineLog));
+                        addAppLog("ENGINE FAILED · " + shortMessage(lastEngineLog));
                     }
                 });
             } catch (Exception e) {
@@ -245,8 +302,39 @@ public class MainActivity extends Activity {
                     engineState.setTextColor(Color.rgb(255, 110, 110));
                     diagnostics.setText(shortMessage(e.toString()));
                 });
+                addAppLog("ENGINE EXCEPTION · " + shortMessage(e.toString()));
             }
         });
+    }
+
+    private void applyProfileEnvironment(ProcessBuilder pb, String selected) {
+        // Los tres perfiles usan límites razonables para Android TV.
+        if ("fast".equals(selected)) {
+            pb.environment().put("OUTPACE_PREBUFFER_MS", "8000");
+            pb.environment().put("OUTPACE_PREBUFFER_TIMEOUT_MS", "7000");
+            pb.environment().put("OUTPACE_REQUEST_TIMEOUT_MS", "1500");
+            pb.environment().put("OUTPACE_REQUEST_CHECK_INTERVAL_MS", "750");
+            pb.environment().put("OUTPACE_MAX_ACTIVE_UPSTREAMS", "4");
+            pb.environment().put("OUTPACE_MAX_PARALLEL_CONNECT", "12");
+            pb.environment().put("OUTPACE_SESSION_BUFFER", "256");
+        } else if ("smooth".equals(selected)) {
+            pb.environment().put("OUTPACE_PREBUFFER_MS", "30000");
+            pb.environment().put("OUTPACE_PREBUFFER_TIMEOUT_MS", "15000");
+            pb.environment().put("OUTPACE_REQUEST_TIMEOUT_MS", "1000");
+            pb.environment().put("OUTPACE_REQUEST_CHECK_INTERVAL_MS", "500");
+            pb.environment().put("OUTPACE_MAX_ACTIVE_UPSTREAMS", "8");
+            pb.environment().put("OUTPACE_MAX_PARALLEL_CONNECT", "24");
+            pb.environment().put("OUTPACE_SESSION_BUFFER", "512");
+        } else {
+            pb.environment().put("OUTPACE_PREBUFFER_MS", "15000");
+            pb.environment().put("OUTPACE_PREBUFFER_TIMEOUT_MS", "12000");
+            pb.environment().put("OUTPACE_REQUEST_TIMEOUT_MS", "1200");
+            pb.environment().put("OUTPACE_REQUEST_CHECK_INTERVAL_MS", "600");
+            pb.environment().put("OUTPACE_MAX_ACTIVE_UPSTREAMS", "6");
+            pb.environment().put("OUTPACE_MAX_PARALLEL_CONNECT", "16");
+            pb.environment().put("OUTPACE_SESSION_BUFFER", "384");
+        }
+        pb.environment().put("OUTPACE_STALE_UPSTREAM_TIMEOUT_MS", "12000");
     }
 
     private boolean healthCheck() {
@@ -278,6 +366,7 @@ public class MainActivity extends Activity {
         autoSearching = true;
         sourceAccepted = false;
         nextButton.setEnabled(false);
+        addAppLog("AUTO SEARCH · " + sources.size() + " fuente(s)");
         tryNext();
     }
 
@@ -307,35 +396,26 @@ public class MainActivity extends Activity {
             sourceAccepted = false;
             sourceState.setText("✕ Ninguna de las " + sources.size() + " fuentes llegó a vídeo.");
             sourceState.setTextColor(Color.rgb(255, 110, 110));
-            diagnostics.setText("Se probaron las dos rutas: descriptor resuelto y swarm directo.");
+            diagnostics.setText("Consulta Ajustes / Logs para ver la causa del último intento.");
+            addAppLog("AUTO SEARCH END · ninguna fuente válida");
             return;
         }
 
         currentId = sources.get(currentIndex);
-        currentStrategy = 0;
+        currentTarget = "cid:" + currentId;
         sourceAccepted = false;
-        startCurrentStrategy();
-    }
-
-    private void startCurrentStrategy() {
-        if (currentId == null) return;
-
-        final String id = currentId;
-        final String target = currentStrategy == 0 ? "cid:" + id : id;
-        currentTarget = target;
-        final String strategy = currentStrategy == 0
-                ? "Resolviendo Content ID → descriptor → P2P"
-                : "Fallback: Content ID como swarm directo";
-        final int gen = attemptGeneration.incrementAndGet();
+        int gen = attemptGeneration.incrementAndGet();
 
         sourceState.setText("Fuente " + (currentIndex + 1) + " de " + sources.size() +
-                " · " + strategy);
+                " · resolviendo descriptor y preparando buffer...");
         sourceState.setTextColor(Color.YELLOW);
-        diagnostics.setText(strategy + "\nID " + masked(id));
+        diagnostics.setText("ID " + masked(currentId) + " · perfil " + profileLabel(profile));
+        addAppLog("SOURCE START · " + (currentIndex + 1) + "/" + sources.size() +
+                " · " + masked(currentId));
 
         MediaItem item = new MediaItem.Builder()
-                .setMediaId(target)
-                .setUri(Uri.parse(BASE + "/streams/ace/" + target + ".ts"))
+                .setMediaId(currentTarget)
+                .setUri(Uri.parse(BASE + "/streams/ace/" + currentTarget + ".ts"))
                 .build();
         player.stop();
         player.clearMediaItems();
@@ -344,10 +424,11 @@ public class MainActivity extends Activity {
         player.play();
 
         cancelTimeout();
+        final String expectedTarget = currentTarget;
         timeoutRunnable = () -> {
             if (gen == attemptGeneration.get()
                     && !sourceAccepted
-                    && target.equals(currentTarget)) {
+                    && expectedTarget.equals(currentTarget)) {
                 failCurrent("Tiempo agotado sin llegar a vídeo");
             }
         };
@@ -355,24 +436,14 @@ public class MainActivity extends Activity {
     }
 
     private void failCurrent(String reason) {
-        final String failedId = currentId;
-        final String failedTarget = currentTarget;
-        if (failedId == null || failedTarget == null || sourceAccepted) return;
+        String failedTarget = currentTarget;
+        if (currentId == null || failedTarget == null || sourceAccepted) return;
         cancelTimeout();
         player.stop();
         stopDaemonSession(failedTarget);
+        addAppLog("SOURCE FAIL · " + masked(currentId) + " · " + reason);
 
-        if (currentStrategy == 0) {
-            sourceState.setText("Ruta con descriptor falló · " + reason +
-                    " · probando swarm directo...");
-            sourceState.setTextColor(Color.rgb(255, 160, 90));
-            currentStrategy = 1;
-            main.postDelayed(this::startCurrentStrategy, 350);
-            return;
-        }
-
-        sourceState.setText("Fuente " + (currentIndex + 1) +
-                " falló en ambas rutas · " + reason);
+        sourceState.setText("Fuente " + (currentIndex + 1) + " falló · " + reason);
         sourceState.setTextColor(Color.rgb(255, 110, 110));
 
         if (autoSearching) {
@@ -388,7 +459,8 @@ public class MainActivity extends Activity {
         stopCurrent(true);
         sourceState.setText("Fuente: detenida");
         sourceState.setTextColor(Color.WHITE);
-        diagnostics.setText("Motor P2P sigue preparado para otra prueba.");
+        diagnostics.setText("Motor P2P sigue preparado.");
+        addAppLog("PLAYBACK STOP");
     }
 
     private void stopCurrent(boolean clearId) {
@@ -402,11 +474,11 @@ public class MainActivity extends Activity {
         if (clearId) currentId = null;
     }
 
-    private void stopDaemonSession(String id) {
+    private void stopDaemonSession(String target) {
         io.execute(() -> {
             HttpURLConnection c = null;
             try {
-                c = (HttpURLConnection) new URL(BASE + "/streams/ace/" + id).openConnection();
+                c = (HttpURLConnection) new URL(BASE + "/streams/ace/" + target).openConnection();
                 c.setRequestMethod("DELETE");
                 c.setConnectTimeout(1000);
                 c.setReadTimeout(1000);
@@ -416,6 +488,28 @@ public class MainActivity extends Activity {
                 if (c != null) c.disconnect();
             }
         });
+    }
+
+    private void stopEngineOnly() {
+        if (engineProcess != null) {
+            try {
+                engineProcess.destroy();
+            } catch (Exception ignored) {
+            }
+            engineProcess = null;
+        }
+    }
+
+    private void restartEngineForProfile(String newProfile) {
+        if (newProfile.equals(profile)) return;
+        stopCurrent(true);
+        profile = newProfile;
+        prefs.edit().putString("profile", profile).apply();
+        addAppLog("PROFILE CHANGE · " + profileLabel(profile));
+        if (settingsProfileText != null) {
+            settingsProfileText.setText("Perfil activo: " + profileLabel(profile));
+        }
+        startEngine();
     }
 
     private void cancelTimeout() {
@@ -461,9 +555,12 @@ public class MainActivity extends Activity {
                     io.execute(() -> fetchStatus(target));
                 } else if (engineReady && !lastEngineLog.isEmpty()) {
                     main.post(() -> {
-                        if (currentTarget == null) diagnostics.setText("Motor: " + shortMessage(lastEngineLog));
+                        if (currentTarget == null) {
+                            diagnostics.setText("Motor listo · perfil " + profileLabel(profile));
+                        }
                     });
                 }
+                refreshLogView();
                 main.postDelayed(this, 1000);
             }
         }, 1000);
@@ -473,29 +570,228 @@ public class MainActivity extends Activity {
         HttpURLConnection c = null;
         try {
             c = (HttpURLConnection) new URL(BASE + "/streams/ace/" + target + "/status").openConnection();
-            c.setConnectTimeout(700);
-            c.setReadTimeout(700);
+            c.setConnectTimeout(800);
+            c.setReadTimeout(800);
             if (c.getResponseCode() != 200) return;
             StringBuilder sb = new StringBuilder();
             try (BufferedReader br = new BufferedReader(new InputStreamReader(c.getInputStream()))) {
                 String line;
                 while ((line = br.readLine()) != null) sb.append(line);
             }
+
             JSONObject o = new JSONObject(sb.toString());
             int peers = o.optInt("peers", 0);
+            long bitrate = o.optLong("bitrate", 0);
             long engineBuffer = o.optLong("buffer_ms", 0);
+            long uploaded = o.optLong("uploaded", 0);
+            int peersServed = o.optInt("peers_served", 0);
+            JSONObject recovery = o.optJSONObject("recovery");
+            Object livepos = o.opt("livepos");
+
             main.post(() -> {
                 if (!target.equals(currentTarget)) return;
                 long playerBuffer = Math.max(0, player.getBufferedPosition() - player.getCurrentPosition());
-                diagnostics.setText("Peers: " + peers +
+                String bitrateText = bitrate > 0
+                        ? String.format(Locale.US, "%.2f Mb/s", (bitrate * 8.0) / 1_000_000.0)
+                        : "—";
+                String rec = recovery == null ? "—" : compact(recovery.toString(), 120);
+                String lp = livepos == null ? "—" : compact(String.valueOf(livepos), 90);
+
+                diagnostics.setText(
+                        "Peers: " + peers +
+                        " · bitrate: " + bitrateText +
                         " · buffer motor: " + engineBuffer + " ms" +
                         " · buffer player: " + playerBuffer + " ms" +
-                        (lastEngineLog.isEmpty() ? "" : "\n" + shortMessage(lastEngineLog)));
+                        "\nRecuperación: " + rec +
+                        " · live: " + lp +
+                        " · subida: " + uploaded +
+                        " · peers servidos: " + peersServed);
             });
         } catch (Exception ignored) {
         } finally {
             if (c != null) c.disconnect();
         }
+    }
+
+    private void showSettingsDialog() {
+        if (settingsDialog != null && settingsDialog.isShowing()) {
+            refreshLogView();
+            return;
+        }
+
+        settingsDialog = new Dialog(this);
+        settingsDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(22), dp(18), dp(22), dp(18));
+        root.setBackgroundColor(Color.rgb(20, 24, 32));
+
+        TextView title = text("Ajustes y diagnóstico P2P", 22, Color.WHITE);
+        root.addView(title);
+
+        settingsProfileText = text("Perfil activo: " + profileLabel(profile), 16, Color.LTGRAY);
+        settingsProfileText.setPadding(0, dp(6), 0, dp(8));
+        root.addView(settingsProfileText);
+
+        LinearLayout profiles = new LinearLayout(this);
+        profiles.setOrientation(LinearLayout.HORIZONTAL);
+
+        Button fast = new Button(this);
+        fast.setText("RÁPIDO");
+        fast.setOnClickListener(v -> restartEngineForProfile("fast"));
+
+        Button balanced = new Button(this);
+        balanced.setText("EQUILIBRADO");
+        balanced.setOnClickListener(v -> restartEngineForProfile("balanced"));
+
+        Button smooth = new Button(this);
+        smooth.setText("FLUIDEZ MÁXIMA");
+        smooth.setOnClickListener(v -> restartEngineForProfile("smooth"));
+
+        profiles.addView(fast);
+        profiles.addView(balanced);
+        profiles.addView(smooth);
+        root.addView(profiles);
+
+        TextView profileHelp = text(
+                "Rápido: menos espera. · Equilibrado: compromiso recomendado. · " +
+                "Fluidez máxima: más prebuffer y más peers activos; consume más red/RAM.",
+                13, Color.GRAY);
+        profileHelp.setPadding(0, 0, 0, dp(8));
+        root.addView(profileHelp);
+
+        logsCheck = new CheckBox(this);
+        logsCheck.setText("Guardar y mostrar logs detallados");
+        logsCheck.setTextColor(Color.WHITE);
+        logsCheck.setChecked(logsEnabled);
+        logsCheck.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            logsEnabled = isChecked;
+            prefs.edit().putBoolean("logs_enabled", isChecked).apply();
+            addAppLog(isChecked ? "LOGS ENABLED" : "LOGS DISABLED");
+            refreshLogView();
+        });
+        root.addView(logsCheck);
+
+        autoScrollCheck = new CheckBox(this);
+        autoScrollCheck.setText("Autoscroll de logs");
+        autoScrollCheck.setTextColor(Color.WHITE);
+        autoScrollCheck.setChecked(logAutoScroll);
+        autoScrollCheck.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            logAutoScroll = isChecked;
+            prefs.edit().putBoolean("logs_autoscroll", isChecked).apply();
+        });
+        root.addView(autoScrollCheck);
+
+        LinearLayout logButtons = new LinearLayout(this);
+        logButtons.setOrientation(LinearLayout.HORIZONTAL);
+
+        Button clear = new Button(this);
+        clear.setText("LIMPIAR");
+        clear.setOnClickListener(v -> {
+            synchronized (logLock) {
+                logLines.clear();
+            }
+            refreshLogView();
+        });
+
+        Button copy = new Button(this);
+        copy.setText("COPIAR LOG");
+        copy.setOnClickListener(v -> copyLogs());
+
+        Button close = new Button(this);
+        close.setText("CERRAR");
+        close.setOnClickListener(v -> settingsDialog.dismiss());
+
+        logButtons.addView(clear);
+        logButtons.addView(copy);
+        logButtons.addView(close);
+        root.addView(logButtons);
+
+        logText = text("", 12, Color.LTGRAY);
+        logText.setTextIsSelectable(true);
+        logText.setPadding(dp(8), dp(8), dp(8), dp(8));
+        logText.setBackgroundColor(Color.rgb(8, 10, 14));
+
+        logScroll = new ScrollView(this);
+        logScroll.addView(logText, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(logScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        settingsDialog.setContentView(root);
+        Window w = settingsDialog.getWindow();
+        if (w != null) {
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            w.setBackgroundDrawableResource(android.R.color.transparent);
+        }
+        settingsDialog.setOnShowListener(d -> {
+            Window window = settingsDialog.getWindow();
+            if (window != null) {
+                window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            }
+            refreshLogView();
+        });
+        settingsDialog.show();
+    }
+
+    private void addEngineLog(String line) {
+        if (!logsEnabled) return;
+        addLogLine("ENG", line);
+    }
+
+    private void addAppLog(String line) {
+        if (!logsEnabled && !line.startsWith("LOGS ENABLED")) return;
+        addLogLine("APP", line);
+    }
+
+    private void addLogLine(String tag, String line) {
+        String timestamp = new SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(new Date());
+        String clean = line == null ? "" : line.replace('\r', ' ').trim();
+        synchronized (logLock) {
+            logLines.addLast(timestamp + " [" + tag + "] " + clean);
+            while (logLines.size() > MAX_LOG_LINES) {
+                logLines.removeFirst();
+            }
+        }
+    }
+
+    private String allLogs() {
+        StringBuilder sb = new StringBuilder();
+        synchronized (logLock) {
+            for (String line : logLines) {
+                sb.append(line).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    private void refreshLogView() {
+        if (logText == null || settingsDialog == null || !settingsDialog.isShowing()) return;
+        main.post(() -> {
+            if (logText == null) return;
+            if (!logsEnabled) {
+                logText.setText("Logs desactivados. Actívalos para empezar a registrar desde ese momento.");
+                return;
+            }
+            logText.setText(allLogs());
+            if (logAutoScroll && logScroll != null) {
+                logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
+            }
+        });
+    }
+
+    private void copyLogs() {
+        String logs = allLogs();
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        cm.setPrimaryClip(ClipData.newPlainText("MiVisor P2P logs", logs));
+        Toast.makeText(this, "Logs copiados", Toast.LENGTH_SHORT).show();
+    }
+
+    private String profileLabel(String value) {
+        if ("fast".equals(value)) return "Rápido";
+        if ("smooth".equals(value)) return "Fluidez máxima";
+        return "Equilibrado";
     }
 
     private String masked(String id) {
@@ -506,7 +802,13 @@ public class MainActivity extends Activity {
     private String shortMessage(String s) {
         if (s == null || s.trim().isEmpty()) return "sin detalle";
         s = s.replace('\n', ' ').replace('\r', ' ').trim();
-        return s.length() > 150 ? s.substring(0, 150) + "…" : s;
+        return s.length() > 180 ? s.substring(0, 180) + "…" : s;
+    }
+
+    private String compact(String s, int max) {
+        if (s == null) return "—";
+        s = s.replace('\n', ' ').replace('\r', ' ').trim();
+        return s.length() > max ? s.substring(0, max) + "…" : s;
     }
 
     private int dp(int v) {
@@ -520,7 +822,7 @@ public class MainActivity extends Activity {
         cancelTimeout();
         if (currentTarget != null) stopDaemonSession(currentTarget);
         if (player != null) player.release();
-        if (engineProcess != null) engineProcess.destroy();
+        stopEngineOnly();
         io.shutdownNow();
         super.onDestroy();
     }
