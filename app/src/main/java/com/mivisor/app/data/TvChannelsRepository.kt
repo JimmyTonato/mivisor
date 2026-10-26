@@ -132,7 +132,9 @@ class TvChannelsRepository(
                 if (idEvent != null && event != null && event != idEvent) continue
                 val name = str("strChannel") ?: continue
                 val country = str("strCountry")
-                if (seen.add("${norm(name)}|${norm(country.orEmpty())}")) out += AgendaChannel(name, null, country)
+                // strLogo: logo del canal en TheSportsDB (solo visual; se usa como última fuente de logos).
+                val logo = str("strLogo")?.takeIf { com.mivisor.app.data.logos.LogoCatalog.usable(it) }
+                if (seen.add("${norm(name)}|${norm(country.orEmpty())}")) out += AgendaChannel(name, null, country, logo)
             }
             return out
         }

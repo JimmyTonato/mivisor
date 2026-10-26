@@ -114,6 +114,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _allChannels = MutableStateFlow<List<Channel>>(emptyList())
     val allChannels: StateFlow<List<Channel>> = _allChannels.asStateFlow()
 
+    // ------------------------------------------------------------------ logos (solo visual)
+
+    private val logoRepository = com.mivisor.app.data.logos.LogoRepository(File(application.filesDir, "logos"))
+    private val _logos = MutableStateFlow(com.mivisor.app.data.logos.ChannelLogoResolver(com.mivisor.app.data.logos.LogoCatalog.EMPTY))
+    /** Logos de grupos y canales. Nunca interviene en la carga ni en la reproducción de los canales. */
+    val logos: StateFlow<com.mivisor.app.data.logos.ChannelLogoResolver> = _logos.asStateFlow()
+    private var logoJob: Job? = null
+
+    private val logosUrl: String
+        get() = com.mivisor.app.data.logos.LogoRepository.urlFor(preferences.agendaUrl.ifBlank { BuildConfig.AGENDA_URL })
+
+    /** Catálogo de logos: de disco al momento y, si tiene más de 1 día, descarga en segundo plano. */
+    fun refreshLogos(force: Boolean = false) {
+        if (logoJob?.isActive == true) return
+        logoJob = viewModelScope.launch {
+            runCatching { _logos.value = logoRepository.load(logosUrl, force) }
+        }
+    }
+
+    /** Logos encontrados en la app (agenda de futbolenlatv, TheSportsDB). Se guardan y no se vuelven a buscar. */
+    fun harvestLogos(entries: List<com.mivisor.app.data.logos.LogoEntry>) {
+        if (entries.isEmpty()) return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (logoRepository.harvest(entries)) runCatching { _logos.value = logoRepository.load("") }
+        }
+    }
+
     private val jobs = HashMap<String, Job>()
     private val lastCheck = HashMap<String, Long>()
     private val limiter = Semaphore(3)
@@ -124,6 +151,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             sourceStore.items.collect { saved -> onSourcesChanged(saved) }
         }
+        refreshLogos()
     }
 
     // ------------------------------------------------------------------ acciones
@@ -141,6 +169,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * con copia vieja o fallida, y sin repetir si se comprobó hace poco. Usa la caché si sigue fresca.
      */
     fun refreshStale() {
+        refreshLogos()       // como mucho 1 descarga al día (lo controla LogoRepository)
         val now = System.currentTimeMillis()
         _ui.value.providers.orEmpty()
             .filter { p -> RefreshPolicy.shouldCheck(p.updatedAt, lastCheck[p.id] ?: 0L, now, p.loading || jobs[p.id]?.isActive == true) }

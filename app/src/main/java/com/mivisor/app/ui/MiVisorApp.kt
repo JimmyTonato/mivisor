@@ -100,6 +100,7 @@ fun MiVisorApp(vm: MainViewModel) {
     val agendaVm: AgendaViewModel = viewModel()
     val quick: QuickServicesViewModel = viewModel()
     val library by vm.ui.collectAsStateWithLifecycle()
+    val logos by vm.logos.collectAsStateWithLifecycle()
     val playback by vm.playback.collectAsStateWithLifecycle()
     val allChannels by vm.allChannels.collectAsStateWithLifecycle()
     val agenda by agendaVm.ui.collectAsStateWithLifecycle()
@@ -228,6 +229,15 @@ fun MiVisorApp(vm: MainViewModel) {
     // Los canales de todos los proveedores alimentan la agenda ("¿dónde puedo verlo?").
     LaunchedEffect(allChannels) { agendaVm.setChannels(allChannels) }
 
+    // Logos que ya trae la agenda (futbolenlatv.es) y los de TheSportsDB al abrir un partido: se guardan.
+    LaunchedEffect(agenda.agenda, agenda.tvChannels) {
+        val fromAgenda = agenda.agenda?.events.orEmpty().asSequence().flatMap { it.channels.asSequence() }
+            .mapNotNull { c -> c.logo?.let { com.mivisor.app.data.logos.LogoEntry(c.name, it, com.mivisor.app.data.logos.LogoSource.FUTBOLENLATV) } }
+        val fromTsdb = agenda.tvChannels.values.asSequence().flatten()
+            .mapNotNull { c -> c.logo?.let { com.mivisor.app.data.logos.LogoEntry(c.name, it, com.mivisor.app.data.logos.LogoSource.THESPORTSDB) } }
+        vm.harvestLogos((fromAgenda + fromTsdb).distinctBy { it.name.lowercase() to it.source }.toList())
+    }
+
     // Abrir un código (o un deep link) lleva a Canales con ese proveedor.
     LaunchedEffect(library.focusToken) {
         if (library.focusToken > 0) {
@@ -315,7 +325,7 @@ fun MiVisorApp(vm: MainViewModel) {
                             onOpenCode = { sourceDialog = SourceDialogState(SourceDialogMode.OPEN_CODE) },
                             onManage = { push(Route.Providers, null) },
                             onEditProvider = { sourceDialog = SourceDialogState(SourceDialogMode.EDIT, it.source) },
-                            restoreKey = restoreKey, autoFocus = contentFocus
+                            restoreKey = restoreKey, autoFocus = contentFocus, logos = logos
                         )
                         NavItem.HISTORY -> HistoryScreen(
                             history = playback,
@@ -380,7 +390,7 @@ fun MiVisorApp(vm: MainViewModel) {
                         if (group == null) {
                             Missing("Este canal ya no está en tus proveedores.") { pop() }
                         } else {
-                            ChannelGroupScreen(group, library, route.backLabel, { pop() }, ::playChannel) { optionsFor = it }
+                            ChannelGroupScreen(group, library, route.backLabel, { pop() }, ::playChannel, logos = logos) { optionsFor = it }
                         }
                     }
                     Route.Providers -> {

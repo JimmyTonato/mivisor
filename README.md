@@ -397,6 +397,31 @@ Nunca da por bueno un canal solo porque Ace Stream se abra. El Content ID se env
 **Ajustes → Registro de errores → Última apertura de canal** (intent, paquete destino, URI enmascarada) sirve para comparar
 con la app antigua: ambas mandan el mismo `Intent(VIEW, acestream://…)` + NEW_TASK sin extras ni MIME.
 
+## Logos de grupos y canales
+
+Solo metadatos visuales: no tocan los enlaces Ace Stream ni la reproducción. Sin logo, el canal funciona igual.
+
+**Dos niveles**: el **grupo** (Movistar, DAZN, Eurosport, LaLiga TV, Tennis Channel…) tiene su logo general y cada
+**canal** (M+ LaLiga, DAZN F1…) el suyo. En cada canal: logo propio → logo del grupo → icono genérico de TV.
+En **Canales**, los canales salen agrupados: cabecera con el logo y el nombre del grupo, y cada tarjeta con su logo.
+Los canales sin grupo van al final en "Otros canales".
+
+**Fuentes** (por prioridad): `logos.json` (manual) → futbolenlatv.es/deporte (los logos que ya trae la agenda) →
+iptv-org (descarga semanal en GitHub Actions, respetando robots.txt) → TheSportsDB (`strLogo` de los canales que la app
+pide al abrir un partido).
+
+**Normalizar antes de buscar**: `🄼🄾🅅🄸🅂🅃🄰🅁 🄻🄰🄻🄸🄶🄰` → `ChannelNameNormalizer` → "Movistar LaLiga" = "M+ LaLiga" → logo.
+El grupo se decide por el **principio** del nombre (alias más largo): "DAZN LaLiga" es de DAZN, "M+ LaLiga" de Movistar.
+
+**Caché**:
+- GitHub Actions publica `channel-logos.json` en la rama `agenda-data` (`groups` + `channels`, con la fuente de cada
+  logo) y lo conserva de una ejecución a otra (`tools/agenda/channel_logos.py`). Grupos y alias en
+  `tools/agenda/channel_brands.json`; logos propios en `tools/agenda/logos.json` (`channels` y `groups`).
+- La app lo descarga como mucho **una vez al día** (con ETag) y guarda en `files/logos/` el catálogo y los logos que
+  encuentra ella misma (`data/logos/LogoRepository.kt`). Lo encontrado no se vuelve a buscar.
+- Resolver: `data/logos/ChannelLogos.kt` (`ChannelLogoResolver`). Pintado: `ui/components/LogoBadge.kt` (caja de tamaño
+  fijo, logo encajado sin deformar sobre placa clara, icono genérico si falla).
+
 ## Lectura de la lista igual que MyLinksPaste (v14)
 
 Revisado en el bytecode de MyLinksPaste 4.6 (`consultarDatos` y `obtenerDatosRecursivo`):

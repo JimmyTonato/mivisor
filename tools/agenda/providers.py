@@ -68,13 +68,13 @@ class Http:
         self.recorder = recorder
 
     def _get(self, url: str, headers: Mapping[str, str], params: Optional[Mapping[str, Any]], label: str,
-             accept: str) -> bytes:
+             accept: str, max_body: int = MAX_BODY) -> bytes:
         if params:
             url = f"{url}?{urllib.parse.urlencode(params)}"
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": accept, **headers})
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as resp:
-                body = resp.read(MAX_BODY + 1)
+                body = resp.read(max_body + 1)
         except urllib.error.HTTPError as e:
             raise ProviderError(code_for_status(e.code), f"HTTP {e.code}", status=e.code) from None
         except (socket.timeout, TimeoutError):
@@ -83,15 +83,15 @@ class Http:
             if isinstance(e.reason, (socket.timeout, TimeoutError)):
                 raise ProviderError(TIMEOUT, "timeout") from None
             raise ProviderError(PROVIDER_UNAVAILABLE, "connection error") from None
-        if len(body) > MAX_BODY:
+        if len(body) > max_body:
             raise ProviderError(INVALID_RESPONSE, "response too large")
         if self.recorder:
             self.recorder(label, body)
         return body
 
     def get_json(self, url: str, headers: Optional[Mapping[str, str]] = None,
-                 params: Optional[Mapping[str, Any]] = None, label: str = "") -> Any:
-        body = self._get(url, dict(headers or {}), params, label, "application/json")
+                 params: Optional[Mapping[str, Any]] = None, label: str = "", max_body: int = MAX_BODY) -> Any:
+        body = self._get(url, dict(headers or {}), params, label, "application/json", max_body)
         try:
             return json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):

@@ -4,9 +4,11 @@ name: Agenda deportiva
 #   Agenda:   Football-Data · Live Tennis · Jolpica (F1) · Blacktop (MotoGP) · Cito (UFC)
 #   TV:       futbolenlatv.es/deporte (una sola descarga por ejecución, respetando robots.txt)
 #   Retratos: Cito (UFC) · TheSportsDB (con caché larga en athletes.json)
+#   Logos de canales: futbolenlatv (de la agenda) · iptv-org (1 vez/semana) → channel-logos.json
 # La app descarga (con caché y ETag, como mucho cada 15 min) desde:
 #   https://raw.githubusercontent.com/<usuario>/<repo>/agenda-data/agenda.json
 #   https://raw.githubusercontent.com/<usuario>/<repo>/agenda-data/services.json
+#   https://raw.githubusercontent.com/<usuario>/<repo>/agenda-data/channel-logos.json (como mucho 1 vez al día)
 #
 # Secrets (Settings → Secrets and variables → Actions):
 #   FOOTBALL_DATA_TOKEN, LIVE_TENNIS_API_KEY, BLACKTOP_API_KEY, CITO_API_KEY
@@ -43,12 +45,12 @@ jobs:
         run: python -m unittest discover -s tools/agenda -v
 
       # Estado publicado en la ejecución anterior: agenda (para "stale"), historial de servicios,
-      # catálogo de retratos y caché de UFC. Si no existe (primera vez), se empieza de cero.
+      # catálogo de retratos, caché de UFC y catálogo de logos. Si no existe (primera vez), se empieza de cero.
       - name: Recuperar estado anterior
         run: |
           mkdir -p state publish
           if git fetch -q --depth 1 origin agenda-data 2>/dev/null; then
-            for f in agenda.json services.json athletes.json ufc-cache.json; do
+            for f in agenda.json services.json athletes.json ufc-cache.json channel-logos.json; do
               git show "FETCH_HEAD:$f" > "state/$f" 2>/dev/null || rm -f "state/$f"
             done
           fi
@@ -107,7 +109,7 @@ jobs:
             git worktree add --detach published-state HEAD
             git -C published-state switch --orphan agenda-data
           fi
-          for f in agenda.json services.json athletes.json ufc-cache.json; do
+          for f in agenda.json services.json athletes.json ufc-cache.json channel-logos.json; do
             if [ -f "publish/$f" ]; then cp "publish/$f" "published-state/$f"; fi
           done
           cd published-state

@@ -46,8 +46,9 @@ from agenda_core import (  # noqa: E402
     previous_events, utc_iso,
 )
 from artwork import Artwork, load_catalog, load_seed  # noqa: E402
+from channel_logos import ChannelLogos, load_brands  # noqa: E402
 from provider_ufc import CitoUfc  # noqa: E402
-from providers import ALL_PROVIDERS, INVALID_RESPONSE, Http, Provider, ProviderError  # noqa: E402
+from providers import ALL_PROVIDERS, INVALID_RESPONSE, USER_AGENT, Http, Provider, ProviderError  # noqa: E402
 from services import build_services, load_services  # noqa: E402
 from tv_futbolenlatv import FutbolEnLaTv  # noqa: E402
 from tv_thesportsdb import TheSportsDbTv  # noqa: E402
@@ -178,6 +179,7 @@ def main(argv: Optional[list[str]] = None, env: Optional[Mapping[str, str]] = No
                                           "(por defecto, junto a --out)")
     ap.add_argument("--logos", default=os.path.join(here, "logos.json"))
     ap.add_argument("--seed", default=os.path.join(here, "athletes_seed.json"))
+    ap.add_argument("--brands", default=os.path.join(here, "channel_brands.json"))
     ap.add_argument("--debug-dir", help="guarda las respuestas crudas de las fuentes (sin cabeceras)")
     args = ap.parse_args(argv)
 
@@ -229,6 +231,22 @@ def main(argv: Optional[list[str]] = None, env: Optional[Mapping[str, str]] = No
     if ufc.cache_out:
         write_json(os.path.join(publish, "ufc-cache.json"), ufc.cache_out)
     print(f"services.json: overall={services['overall']}", file=sys.stderr)
+
+    # Catálogo de logos de canales (solo metadatos visuales). Nunca afecta a la agenda: si falla,
+    # se vuelve a publicar el catálogo anterior.
+    previous_logos = load_json(os.path.join(state, "channel-logos.json")) if state else None
+    try:
+        brands = load_brands(args.brands)
+        logos_step = ChannelLogos(http, now, brands, previous_logos, load_json(args.logos) or {},
+                                  agent=USER_AGENT.split("/")[0])
+        events = result.agenda["events"] if result.published else (previous or {}).get("events", [])
+        write_json(os.path.join(publish, "channel-logos.json"), logos_step.build(events))
+        for line in logos_step.log:
+            print(line, file=sys.stderr)
+    except Exception as exc:   # noqa: BLE001 — los logos nunca tumban la agenda
+        print(f"logos: error {type(exc).__name__}; se mantiene el catálogo anterior", file=sys.stderr)
+        if previous_logos:
+            write_json(os.path.join(publish, "channel-logos.json"), previous_logos)
 
     if not result.published:
         return EXIT_ALL_FAILED

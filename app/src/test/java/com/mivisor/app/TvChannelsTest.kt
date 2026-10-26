@@ -61,7 +61,7 @@ class TvChannelsTest {
         val c = TvChannelsRepository.parse(body(row("DAZN LaLiga", "Spain"))).single()
         assertEquals("DAZN LaLiga", c.name)
         assertEquals("Spain", c.note)
-        assertNull(c.logo)
+        assertEquals("https://x/logo.png", c.logo)          // strLogo de TheSportsDB (solo visual)
         assertNull(c.dial)
     }
 

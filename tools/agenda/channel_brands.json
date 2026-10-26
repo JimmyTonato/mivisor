@@ -1,0 +1,83 @@
+{
+  "_ayuda": "Grupos de canales (proveedor/marca). 'aliases': cómo empieza el nombre de un canal de ese grupo (sin importar mayúsculas, acentos ni letras decorativas). 'flagship': canales cuyo logo sirve como logo del grupo si no hay 'logo'. 'logo': URL propia (PNG/JPEG/WebP) que manda sobre todo lo demás. El orden no importa: gana el alias más largo.",
+  "groups": {
+    "movistar": {
+      "name": "Movistar Plus+",
+      "aliases": ["movistar plus+", "movistar plus", "movistar+", "movistar", "m+"],
+      "flagship": ["Movistar Plus+", "Movistar+", "Movistar Plus"],
+      "logo": ""
+    },
+    "dazn": {
+      "name": "DAZN",
+      "aliases": ["dazn"],
+      "flagship": ["DAZN", "DAZN 1"],
+      "logo": ""
+    },
+    "eurosport": {
+      "name": "Eurosport",
+      "aliases": ["eurosport"],
+      "flagship": ["Eurosport", "Eurosport 1"],
+      "logo": ""
+    },
+    "laliga": {
+      "name": "LaLiga TV",
+      "aliases": ["laliga tv", "laliga hypermotion", "laliga+", "laliga plus", "hypermotion"],
+      "flagship": ["LaLiga TV", "LaLiga+", "LaLiga TV Hypermotion"],
+      "logo": ""
+    },
+    "tennischannel": {
+      "name": "Tennis Channel",
+      "aliases": ["tennis channel"],
+      "flagship": ["Tennis Channel"],
+      "logo": ""
+    },
+    "rtve": {
+      "name": "RTVE",
+      "aliases": ["teledeporte", "tdp", "rtve", "la 1", "la 2"],
+      "flagship": ["Teledeporte", "La 1"],
+      "logo": ""
+    },
+    "gol": {
+      "name": "GOL",
+      "aliases": ["gol play", "gol tv", "gol"],
+      "flagship": ["GOL PLAY", "GOL"],
+      "logo": ""
+    },
+    "bein": {
+      "name": "beIN SPORTS",
+      "aliases": ["bein sports", "bein"],
+      "flagship": ["beIN SPORTS"],
+      "logo": ""
+    },
+    "sky": {
+      "name": "Sky Sports",
+      "aliases": ["sky sports", "sky sport"],
+      "flagship": ["Sky Sports"],
+      "logo": ""
+    },
+    "espn": {
+      "name": "ESPN",
+      "aliases": ["espn"],
+      "flagship": ["ESPN"],
+      "logo": ""
+    },
+    "eleven": {
+      "name": "Eleven Sports",
+      "aliases": ["eleven sports", "eleven"],
+      "flagship": ["Eleven Sports"],
+      "logo": ""
+    },
+    "tnt": {
+      "name": "TNT Sports",
+      "aliases": ["tnt sports", "tnt sport"],
+      "flagship": ["TNT Sports"],
+      "logo": ""
+    },
+    "redbull": {
+      "name": "Red Bull TV",
+      "aliases": ["red bull tv", "redbull tv"],
+      "flagship": ["Red Bull TV"],
+      "logo": ""
+    }
+  }
+}

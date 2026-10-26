@@ -1,5 +1,14 @@
 package com.mivisor.app.ui.screens.channels
 
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import com.mivisor.app.data.logos.ChannelLogoResolver
+import com.mivisor.app.data.logos.LogoCatalog
+import com.mivisor.app.data.logos.LogoSection
+import com.mivisor.app.data.logos.LogoSections
+import com.mivisor.app.data.logos.ResolvedLogo
+import com.mivisor.app.ui.components.ChannelLogoBadge
+import com.mivisor.app.ui.components.GroupLogoBadge
+import com.mivisor.app.ui.components.LogoBadge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -78,12 +87,16 @@ fun ChannelsScreen(
     onManage: () -> Unit,
     onEditProvider: (ProviderState) -> Unit,
     restoreKey: String?,
-    autoFocus: Boolean
+    autoFocus: Boolean,
+    logos: ChannelLogoResolver = ChannelLogoResolver(LogoCatalog.EMPTY)
 ) {
     val layout = LocalAppLayout.current
     val providers = library.providers.orEmpty()
     val selected = library.provider(library.selected)
-    val groups = remember(library.groups, library.selected) { library.visibleGroups() }
+    val visible = remember(library.groups, library.selected) { library.visibleGroups() }
+    // Por grupo/proveedor (Movistar, DAZN…) con su logo; cada canal con el suyo. Solo visual.
+    val sections = remember(visible, logos) { LogoSections.build(visible, logos, { it.name }, { it.first.channel.group }) }
+    val groups = remember(sections) { sections.flatMap { s -> s.items.map { it.first } } }
     val firstCard = remember { FocusRequester() }
     val firstProvider = remember { FocusRequester() }
     val restore = remember { FocusRequester() }
@@ -114,11 +127,11 @@ fun ChannelsScreen(
             Welcome(onAddProvider, onOpenCode, firstProvider)
         } else if (layout.compact) {
             ProviderChips(providers, library, onSelectProvider, onAddProvider, firstProvider)
-            Content(library, selected, groups, firstCard, restore, restoreKey, onOpenGroup, onPlay, onOptions, onRefresh, onEditProvider, Modifier.weight(1f))
+            Content(library, selected, groups, sections, firstCard, restore, restoreKey, onOpenGroup, onPlay, onOptions, onRefresh, onEditProvider, Modifier.weight(1f))
         } else {
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ProviderColumn(providers, library, onSelectProvider, onAddProvider, onOpenCode, onManage, firstProvider, Modifier.width(178.dp).fillMaxHeight())
-                Content(library, selected, groups, firstCard, restore, restoreKey, onOpenGroup, onPlay, onOptions, onRefresh, onEditProvider, Modifier.weight(1f).fillMaxHeight())
+                Content(library, selected, groups, sections, firstCard, restore, restoreKey, onOpenGroup, onPlay, onOptions, onRefresh, onEditProvider, Modifier.weight(1f).fillMaxHeight())
             }
         }
     }
@@ -261,6 +274,7 @@ private fun Content(
     library: LibraryUi,
     selected: ProviderState?,
     groups: List<ChannelGroup>,
+    sections: List<LogoSection<ChannelGroup>>,
     firstCard: FocusRequester,
     restore: FocusRequester,
     restoreKey: String?,
@@ -290,27 +304,45 @@ private fun Content(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(groups, key = { "grp:${it.key}" }) { group ->
-                    val key = "grp:${group.key}"
-                    val mod = when {
-                        key == restoreKey -> Modifier.focusRequester(restore)
-                        group === groups.first() -> Modifier.focusRequester(firstCard)
-                        else -> Modifier
+                for (section in sections) {
+                    // Cabecera del grupo: ocupa toda la fila y no es enfocable (el mando salta de tarjeta en tarjeta).
+                    item(key = "sec:${section.key ?: "_otros"}", span = { GridItemSpan(maxLineSpan) }) {
+                        SectionHeader(section, Modifier.padding(top = if (section === sections.first()) 0.dp else 8.dp))
                     }
-                    GroupCard(
-                        group, perProvider = library.selected != null,
-                        onClick = { if (group.sources.size == 1) onPlay(group.first.channel) else onOpenGroup(group, key) },
-                        onLongClick = { onOptions(group.first.channel) },
-                        modifier = mod
-                    )
+                    items(section.items, key = { "grp:${it.first.key}" }) { (group, logo) ->
+                        val key = "grp:${group.key}"
+                        val mod = when {
+                            key == restoreKey -> Modifier.focusRequester(restore)
+                            group === groups.first() -> Modifier.focusRequester(firstCard)
+                            else -> Modifier
+                        }
+                        GroupCard(
+                            group, logo, perProvider = library.selected != null,
+                            onClick = { if (group.sources.size == 1) onPlay(group.first.channel) else onOpenGroup(group, key) },
+                            onLongClick = { onOptions(group.first.channel) },
+                            modifier = mod
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+/** "[logo DAZN]  DAZN · 5 canales" */
 @Composable
-private fun GroupCard(group: ChannelGroup, perProvider: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier) {
+private fun SectionHeader(section: LogoSection<ChannelGroup>, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth().height(40.dp).padding(horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (section.key != null) GroupLogoBadge(section.logo, 52.dp, 32.dp) else LogoBadge(emptyList(), 52.dp, 32.dp)
+        Box(Modifier.width(10.dp))
+        Txt(section.name.uppercase(), Ui.Section.copy(fontSize = 13.sp), modifier = Modifier.weight(1f, fill = false))
+        Box(Modifier.width(8.dp))
+        Txt("${section.items.size} ${if (section.items.size == 1) "canal" else "canales"}", NeonType.Small, color = Neon.Faint)
+    }
+}
+
+@Composable
+private fun GroupCard(group: ChannelGroup, logo: ResolvedLogo, perProvider: Boolean, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier) {
     TvClickable(
         onClick = onClick,
         onLongClick = onLongClick,
@@ -323,7 +355,8 @@ private fun GroupCard(group: ChannelGroup, perProvider: Boolean, onClick: () -> 
     ) { _ ->
         Column(Modifier.fillMaxSize().padding(10.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                ChannelLogo(group.name, 32.dp, tint = group.tint)
+                // Logo del canal (o el de su grupo si no tiene), en caja fija: 56×32 encaja logos anchos y cuadrados.
+                ChannelLogoBadge(logo, 56.dp, 32.dp)
                 Box(Modifier.weight(1f))
                 val n = group.sources.size
                 if (n > 1) CountBadge(if (perProvider) "$n canales" else "$n fuentes")
@@ -368,10 +401,12 @@ fun ChannelGroupScreen(
     backLabel: String,
     onBack: () -> Unit,
     onPlay: (Channel) -> Unit,
+    logos: ChannelLogoResolver = ChannelLogoResolver(LogoCatalog.EMPTY),
     onOptions: (Channel) -> Unit
 ) {
     val layout = LocalAppLayout.current
     val first = remember { FocusRequester() }
+    val logo = remember(group.key, logos) { logos.resolve(group.name, group.first.channel.group) }
     AutoFocus(first, key = group.key)
     val updated = group.sources.mapNotNull { s -> library.provider(s.providerId)?.updatedAt?.takeIf { it > 0 } }.maxOrNull()
 
@@ -396,8 +431,15 @@ fun ChannelGroupScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                ChannelLogo(group.name, 72.dp, tint = group.tint)
+                ChannelLogoBadge(logo, 128.dp, 72.dp)
                 Txt(group.name, NeonType.H2)
+                logo.groupName?.let { g ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GroupLogoBadge(logo, 34.dp, 20.dp)
+                        Box(Modifier.width(6.dp))
+                        Txt(g, NeonType.Small, color = Neon.Dim)
+                    }
+                }
                 Row(
                     Modifier.background(Neon.PanelHi, RoundedCornerShape(50)).border(1.dp, Neon.Stroke, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically

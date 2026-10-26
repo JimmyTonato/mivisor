@@ -433,6 +433,27 @@ class StatusTests(unittest.TestCase):
             self.assertFalse(os.path.exists(out))
 
 
+class ChannelLogosStepTests(unittest.TestCase):
+    def test_main_writes_channel_logos_even_without_iptv(self):
+        class NoNet(FakeHttp):
+            def get_text(self, url, headers=None, label=""):
+                raise pv.ProviderError(pv.PROVIDER_UNAVAILABLE, "offline")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "agenda.json")
+            stderr = io.StringIO()
+            with mock.patch("sys.stderr", new=stderr):
+                code = gen.main(["--out", out], env=SECRETS, http_factory=lambda rec: NoNet(all_ok_routes()),
+                                now=NOW, sleep=lambda s: None)
+            self.assertEqual(code, 0)
+            with open(os.path.join(tmp, "channel-logos.json"), encoding="utf-8") as fh:
+                logos = json.load(fh)
+            self.assertIn("movistar", logos["groups"])
+            self.assertIn("dazn", logos["groups"])
+            self.assertIsNone(logos["iptv_fetched"])
+            self.assertIn("logos:", stderr.getvalue())
+
+
 # ----------------------------------------------------------------------------- seguridad y E2E
 
 class SecurityAndEndToEndTests(unittest.TestCase):
