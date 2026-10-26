@@ -1,0 +1,23 @@
+MiVisor P2P Test — prototipo experimental
+
+Este APK es una prueba independiente de MiVisor y no modifica la aplicación principal.
+
+El núcleo P2P de esta prueba compila código del proyecto abierto "outpace"
+(commit a6586f4187f38e57c4dfc431ac47a6e49f4edf7f), licenciado AGPL-3.0-or-later:
+https://github.com/jamezrin/outpace
+
+El código Android de integración de esta prueba queda en la rama:
+poc/ace-integrated-test
+
+La prueba no incluye listas de canales ni Content IDs. El usuario introduce únicamente
+fuentes que esté autorizado a utilizar.
+
+Objetivo de la prueba:
+- no abrir la aplicación oficial Ace Stream;
+- probar Content IDs secuencialmente;
+- parar en la primera fuente que llegue a vídeo;
+- reproducir la preview dentro de esta APK mediante Media3;
+- mostrar peers y estado para diagnóstico.
+
+No se garantiza que cualquier Content ID público use la ruta directa probada por el
+prototipo. Un fallo puede indicar ausencia de peers o necesidad de resolución adicional.
