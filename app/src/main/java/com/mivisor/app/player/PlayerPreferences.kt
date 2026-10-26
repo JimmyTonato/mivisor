@@ -75,6 +75,11 @@ class PlayerPreferences(context: Context) {
         get() = prefs.getBoolean("engine_logs", false)
         set(value) = prefs.edit().putBoolean("engine_logs", value).apply()
 
+    /** Vista previa silenciada en Canales con el motor interno (al dejar el foco ~1 s sobre un canal). */
+    var previewEnabled: Boolean
+        get() = prefs.getBoolean("engine_preview", true)
+        set(value) = prefs.edit().putBoolean("engine_preview", value).apply()
+
     /** Iniciar Ace Stream al abrir MiVisor. */
     var aceAutoStart: Boolean
         get() = prefs.getBoolean("svc_ace_auto", false)

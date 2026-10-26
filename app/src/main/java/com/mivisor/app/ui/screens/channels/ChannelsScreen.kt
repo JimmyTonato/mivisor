@@ -32,6 +32,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
+import com.mivisor.app.ui.screens.player.PreviewHooks
+import com.mivisor.app.ui.screens.player.PreviewPanel
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,10 +96,20 @@ fun ChannelsScreen(
     onEditProvider: (ProviderState) -> Unit,
     restoreKey: String?,
     autoFocus: Boolean,
-    logos: ChannelLogoResolver = ChannelLogoResolver(LogoCatalog.EMPTY)
+    logos: ChannelLogoResolver = ChannelLogoResolver(LogoCatalog.EMPTY),
+    preview: PreviewHooks? = null
 ) {
     val layout = LocalAppLayout.current
     val providers = library.providers.orEmpty()
+    // Vista previa: el canal enfocado se carga (silenciado) cuando el foco se queda ~0,9 s sobre él.
+    var focused by remember { mutableStateOf<ChannelGroup?>(null) }
+    if (preview != null) LaunchedEffect(focused?.key) {
+        val g = focused ?: return@LaunchedEffect
+        if (preview.keyOfGroup(g) == null) return@LaunchedEffect
+        delay(900)
+        preview.previewGroup(g)
+    }
+    val onFocusGroup: (ChannelGroup) -> Unit = { focused = it }
     val selected = library.provider(library.selected)
     val visible = remember(library.groups, library.selected) { library.visibleGroups() }
     // Por grupo/proveedor (Movistar, DAZN…) con su logo; cada canal con el suyo. Solo visual.
@@ -127,11 +145,30 @@ fun ChannelsScreen(
             Welcome(onAddProvider, onOpenCode, firstProvider)
         } else if (layout.compact) {
             ProviderChips(providers, library, onSelectProvider, onAddProvider, firstProvider)
-            Content(library, selected, groups, sections, firstCard, restore, restoreKey, onOpenGroup, onPlay, onOptions, onRefresh, onEditProvider, Modifier.weight(1f))
+            Content(library, selected, groups, sections, firstCard, restore, restoreKey, onOpenGroup, onPlay, onOptions, onRefresh, onEditProvider, Modifier.weight(1f), null, onFocusGroup)
         } else {
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ProviderColumn(providers, library, onSelectProvider, onAddProvider, onOpenCode, onManage, firstProvider, Modifier.width(178.dp).fillMaxHeight())
-                Content(library, selected, groups, sections, firstCard, restore, restoreKey, onOpenGroup, onPlay, onOptions, onRefresh, onEditProvider, Modifier.weight(1f).fillMaxHeight())
+                Content(library, selected, groups, sections, firstCard, restore, restoreKey, onOpenGroup, onPlay, onOptions, onRefresh, onEditProvider, Modifier.weight(1f).fillMaxHeight(), preview, onFocusGroup)
+                if (preview != null && groups.isNotEmpty()) {
+                    val g = focused?.takeIf { f -> groups.any { it.key == f.key } }
+                    val gLogo = remember(g?.key, logos) { g?.let { logos.resolve(it.name, it.first.channel.group) } }
+                    PreviewPanel(
+                        title = g?.name,
+                        logo = gLogo,
+                        sessionKey = g?.let(preview.keyOfGroup),
+                        hint = when {
+                            g == null -> "Deja el foco en un canal para verlo aquí."
+                            preview.keyOfGroup(g) == null -> "Este canal no es Ace Stream: sin vista previa."
+                            else -> "Cargando vista previa… OK: pantalla completa con la mejor resolución."
+                        },
+                        modifier = Modifier.width(300.dp).padding(top = 6.dp)
+                    ) {
+                        if (g != null && g.sources.size > 1) {
+                            SecondaryButton("Elegir fuente (${g.sources.size})", { onOpenGroup(g, "grp:${g.key}") }, Modifier.fillMaxWidth(), icon = R.drawable.ic_layers)
+                        }
+                    }
+                }
             }
         }
     }
@@ -283,7 +320,9 @@ private fun Content(
     onOptions: (Channel) -> Unit,
     onRefresh: (String?) -> Unit,
     onEditProvider: (ProviderState) -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
+    preview: PreviewHooks?,
+    onFocusGroup: (ChannelGroup) -> Unit
 ) {
     val layout = LocalAppLayout.current
     Box(modifier.fillMaxWidth()) {
@@ -318,9 +357,16 @@ private fun Content(
                         }
                         GroupCard(
                             group, logo, perProvider = library.selected != null,
-                            onClick = { if (group.sources.size == 1) onPlay(group.first.channel) else onOpenGroup(group, key) },
+                            onClick = {
+                                when {
+                                    // Motor interno: OK = ver ya (mejor resolución), reutilizando la vista previa.
+                                    preview != null && preview.keyOfGroup(group) != null -> preview.playGroup(group)
+                                    group.sources.size == 1 -> onPlay(group.first.channel)
+                                    else -> onOpenGroup(group, key)
+                                }
+                            },
                             onLongClick = { onOptions(group.first.channel) },
-                            modifier = mod
+                            modifier = mod.onFocusChanged { if (it.isFocused) onFocusGroup(group) }
                         )
                     }
                 }
@@ -406,10 +452,19 @@ fun ChannelGroupScreen(
     onBack: () -> Unit,
     onPlay: (Channel) -> Unit,
     logos: ChannelLogoResolver = ChannelLogoResolver(LogoCatalog.EMPTY),
+    preview: PreviewHooks? = null,
     onOptions: (Channel) -> Unit
 ) {
     val layout = LocalAppLayout.current
     val first = remember { FocusRequester() }
+    // Vista previa de la FUENTE enfocada (esa fuente primero; si no da imagen, las demás del canal por resolución).
+    var focusedSource by remember { mutableStateOf<ChannelSource?>(null) }
+    if (preview != null && layout.expanded) LaunchedEffect(focusedSource?.channel?.id) {
+        val src = focusedSource ?: return@LaunchedEffect
+        if (preview.keyOfChannel(src.channel) == null) return@LaunchedEffect
+        delay(900)
+        preview.previewChannel(src.channel)
+    }
     val logo = remember(group.key, logos) { logos.resolve(group.name, group.first.channel.group) }
     AutoFocus(first, key = group.key)
     val updated = group.sources.mapNotNull { s -> library.provider(s.providerId)?.updatedAt?.takeIf { it > 0 } }.maxOrNull()
@@ -449,20 +504,32 @@ fun ChannelGroupScreen(
                     }
                     items(variant.sources, key = { s -> "${variant.key}_${s.channel.id}" }) { source ->
                         SourceCard(source, vLogo, { onPlay(source.channel) }, { onOptions(source.channel) },
-                            if (source === firstSource) Modifier.focusRequester(first) else Modifier)
+                            (if (source === firstSource) Modifier.focusRequester(first) else Modifier)
+                                .onFocusChanged { if (it.isFocused) focusedSource = source })
                     }
                 }
             }
         }
         if (layout.expanded) {
             Column(
-                Modifier.width(230.dp).fillMaxHeight().padding(top = 12.dp, bottom = 10.dp)
+                Modifier.width(if (preview != null) 300.dp else 230.dp).fillMaxHeight().padding(top = 12.dp, bottom = 10.dp)
                     .background(Neon.Panel.copy(alpha = 0.9f), RoundedCornerShape(16.dp)).border(1.dp, Neon.Stroke, RoundedCornerShape(16.dp))
                     .padding(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                ChannelLogoBadge(logo, 128.dp, 72.dp)
+                val src = focusedSource
+                if (preview != null) {
+                    PreviewPanel(
+                        title = src?.channel?.name,
+                        logo = logo,
+                        sessionKey = src?.channel?.let(preview.keyOfChannel),
+                        hint = if (src == null) "Deja el foco en una fuente para verla aquí." else "Cargando vista previa… OK: pantalla completa.",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    ChannelLogoBadge(logo, 128.dp, 72.dp)
+                }
                 Txt(group.name, NeonType.H2)
                 logo.groupName?.let { g ->
                     Row(verticalAlignment = Alignment.CenterVertically) {

@@ -53,4 +53,41 @@ class EngineRoutingTest {
         assertEquals(5, plan.candidates.size)
         assertEquals(id('a'), plan.candidates.first().contentId)
     }
+
+    @Test fun higherResolutionAlwaysFirstUnlessUserPickedOne() {
+        val sd = com.mivisor.app.engine.SourceCandidate(id('a'), "SD", quality = 1)
+        val fhd = com.mivisor.app.engine.SourceCandidate(id('b'), "FHD", quality = 3)
+        val hd = com.mivisor.app.engine.SourceCandidate(id('c'), "HD", quality = 2)
+        val unknown = com.mivisor.app.engine.SourceCandidate(id('d'), "?")
+        val hd2 = com.mivisor.app.engine.SourceCandidate(id('e'), "HD2", quality = 2)
+        // La última buena (SD) ya no gana a una FHD; a igual resolución sí manda (HD2 antes que HD).
+        val auto = com.mivisor.app.engine.SourceSelector(listOf(sd, unknown, hd, fhd, hd2), rememberedGood = id('e')).order
+        assertEquals(listOf(id('b'), id('e'), id('c'), id('a'), id('d')), auto.map { it.contentId })
+        // Recién fallada: al final aunque sea FHD.
+        val failed = com.mivisor.app.engine.SourceSelector(listOf(sd, fhd, hd), recentlyFailed = setOf(id('b'))).order
+        assertEquals(id('b'), failed.last().contentId)
+        // Elegida a mano: primero esa; el resto por resolución.
+        val picked = com.mivisor.app.engine.SourceSelector(listOf(fhd, sd, hd), preferred = id('a'), explicit = true).order
+        assertEquals(listOf(id('a'), id('b'), id('c')), picked.map { it.contentId })
+        // Preferida sin elegir a mano (tarjeta del canal): no adelanta a una de más resolución.
+        val notPinned = com.mivisor.app.engine.SourceSelector(listOf(fhd, sd), preferred = id('a')).order
+        assertEquals(id('b'), notPinned.first().contentId)
+    }
+
+    @Test fun groupPlanUsesFirstVariantBestResolutionFirst() {
+        val sd = ace("s", "DAZN 1 SD", 'a', "Uno")
+        val fhd = ace("f", "DAZN 1 FHD", 'b', "Dos")
+        val hd = ace("h", "DAZN 1 720p", 'c', "Tres")
+        val two = ace("t", "DAZN 2 4K", 'd', "Uno")
+        val groups = ChannelGrouping.group(listOf(
+            Triple("uno", "Uno", listOf(sd, two)), Triple("dos", "Dos", listOf(fhd)), Triple("tres", "Tres", listOf(hd))
+        ))
+        val g = groups.first { gr -> gr.sources.any { it.channel.id == "s" } }
+        val plan = EngineRouting.planGroup(g)
+        assertEquals(listOf(id('b'), id('c'), id('a')), plan.candidates.map { it.contentId })
+        assertEquals("FHD", plan.candidates.first().qualityLabel)
+        assertEquals(false, plan.explicit)
+        // Misma clave que al elegir una fuente de esa variante: la sesión de la vista previa se reutiliza.
+        assertEquals(plan.channelKey, EngineRouting.plan(sd, groups).channelKey)
+    }
 }

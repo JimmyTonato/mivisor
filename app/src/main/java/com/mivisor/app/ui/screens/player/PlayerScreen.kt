@@ -100,6 +100,13 @@ fun PlayerScreen(
             },
             modifier = Modifier.fillMaxSize()
         )
+        // Mientras se busca una fuente con imagen: spinner grande en el centro (no una pantalla negra muda).
+        if (ui.phase == Phase.IDLE || ui.phase == Phase.STARTING_ENGINE || ui.phase == Phase.TRYING) {
+            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Spinner(56.dp, Neon.Cyan)
+                Txt(searchingLine(ui), NeonType.H3, color = Neon.Dim)
+            }
+        }
         // Recoge las teclas cuando el panel está oculto (para volver a mostrarlo).
         Box(Modifier.size(1.dp).focusRequester(catcher).focusable())
 
@@ -116,7 +123,7 @@ fun PlayerScreen(
                         Spinner(16.dp, Neon.Cyan)
                         Box(Modifier.width(10.dp))
                     }
-                    Txt(statusLine(ui), NeonType.Body, color = if (ui.phase == Phase.FAILED) Ui.Amber else Neon.Dim, maxLines = 2)
+                    Txt(playbackStatus(ui), NeonType.Body, color = if (ui.phase == Phase.FAILED) Ui.Amber else Neon.Dim, maxLines = 2)
                 }
                 ui.message?.let { Txt(it, NeonType.Small, color = Neon.Faint, maxLines = 3) }
             }
@@ -142,10 +149,19 @@ fun PlayerScreen(
     }
 }
 
-private fun statusLine(ui: PlaybackController.Ui): String = when (ui.phase) {
-    Phase.IDLE -> "Preparando…"
-    Phase.STARTING_ENGINE -> "Arrancando el motor P2P de MiVisor…"
-    Phase.TRYING -> "Fuente ${ui.sourceIndex} de ${ui.sourceCount}" + (ui.sourceLabel?.let { " · $it" } ?: "") + " · ${ui.peers} peers"
-    Phase.PLAYING -> "En directo · fuente ${ui.sourceIndex} de ${ui.sourceCount}" + (ui.sourceLabel?.let { " · $it" } ?: "") + " · ${ui.peers} peers"
-    Phase.FAILED -> ui.failure?.label ?: "No se pudo reproducir"
+internal fun playbackStatus(ui: PlaybackController.Ui): String {
+    val src = "fuente ${ui.sourceIndex} de ${ui.sourceCount}" + (ui.quality?.let { " · $it" } ?: "") + (ui.sourceLabel?.let { " · $it" } ?: "")
+    return when (ui.phase) {
+        Phase.IDLE -> "Preparando…"
+        Phase.STARTING_ENGINE -> "Arrancando el motor P2P de MiVisor…"
+        Phase.TRYING -> src.replaceFirstChar { it.uppercase() } + " · ${ui.peers} peers"
+        Phase.PLAYING -> "En directo · $src · ${ui.peers} peers"
+        Phase.FAILED -> ui.failure?.label ?: "No se pudo reproducir"
+    }
+}
+
+/** Texto bajo el spinner: "Buscando una fuente con imagen… (2 de 5 · FHD)". */
+internal fun searchingLine(ui: PlaybackController.Ui): String = when (ui.phase) {
+    Phase.TRYING -> "Buscando una fuente con imagen… (${ui.sourceIndex} de ${ui.sourceCount}" + (ui.quality?.let { " · $it" } ?: "") + ")"
+    else -> "Preparando el motor P2P…"
 }

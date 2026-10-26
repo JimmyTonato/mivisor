@@ -219,19 +219,35 @@ fun MiVisorApp(vm: MainViewModel) {
         quick.play(request, needs)
     }
 
-    /** Motor interno: pantalla completa y prueba de fuentes; en Automático, si ninguna da vídeo, la app externa. */
-    fun playInternal(request: PlayRequest, mode: EngineMode) {
-        val eventSources = request.eventId?.let { id -> agenda.event(id)?.let { agenda.sourcesOf(it) } }
-        val plan = EngineRouting.plan(request.channel, library.groups, eventSources)
+    /** Automático: si ninguna fuente da vídeo con el motor interno, Ace Stream externo (ya se pulsó Ver/OK). */
+    fun fallbackExternal(request: PlayRequest, mode: EngineMode): (FailureKind?) -> Unit = { kind ->
+        if (mode == EngineMode.AUTO && kind != FailureKind.CANCELLED && ExternalEngineLauncher.isAvailable(context)) {
+            Toast.makeText(context, "El motor interno no consiguió vídeo: se abre Ace Stream", Toast.LENGTH_LONG).show()
+            closePlayer()
+            playExternal(request)
+        }
+    }
+
+    /**
+     * Pantalla completa con el motor interno. Si la vista previa ya está con ese canal (y, si se eligió una fuente
+     * concreta, con esa fuente), se reutiliza la sesión: solo se quita el silencio. Si no, se empieza de cero.
+     */
+    fun startInternal(plan: EngineRouting.Plan, request: PlayRequest, mode: EngineMode) {
+        if (plan.candidates.isEmpty()) { playExternal(request); return }
         internal = request
         vm.recordPlayback(request)
-        PlaybackController.play(context, request.eventTitle ?: request.channel.name, plan.channelKey, plan.candidates, plan.preferred) { kind ->
-            if (mode == EngineMode.AUTO && kind != FailureKind.CANCELLED && ExternalEngineLauncher.isAvailable(context)) {
-                Toast.makeText(context, "El motor interno no consiguió vídeo: se abre Ace Stream", Toast.LENGTH_LONG).show()
-                closePlayer()
-                playExternal(request)
-            }
+        val title = request.eventTitle ?: plan.name
+        val onExhausted = fallbackExternal(request, mode)
+        if (PlaybackController.canReuse(plan.channelKey, if (plan.explicit) plan.preferred else null)) {
+            PlaybackController.promote(title, onExhausted)
+        } else {
+            PlaybackController.play(context, title, plan.channelKey, plan.candidates, plan.preferred, explicit = plan.explicit, onExhausted = onExhausted)
         }
+    }
+
+    fun playInternal(request: PlayRequest, mode: EngineMode) {
+        val eventSources = request.eventId?.let { id -> agenda.event(id)?.let { agenda.sourcesOf(it) } }
+        startInternal(EngineRouting.plan(request.channel, library.groups, eventSources), request, mode)
     }
 
     /** OK = quiero ver esto: Ace y VPN se preparan solos si hacen falta y luego se abre el mismo contenido. */
@@ -251,6 +267,34 @@ fun MiVisorApp(vm: MainViewModel) {
     }
 
     fun playChannel(channel: Channel) = play(PlayRequest(channel))
+
+    // Vista previa en Canales (fase 2): solo con el motor interno, nunca abre nada externo al mover el foco.
+    val engineSupported = remember { EngineManager.isSupported(context) }
+    val engineMode = launcher.preferences.engineMode
+    val previewHooks: com.mivisor.app.ui.screens.player.PreviewHooks? =
+        if (layout.compact || !engineSupported || engineMode == EngineMode.EXTERNAL || !launcher.preferences.previewEnabled) null
+        else com.mivisor.app.ui.screens.player.PreviewHooks(
+            keyOfGroup = { g -> EngineRouting.planGroup(g).takeIf { it.candidates.isNotEmpty() }?.channelKey },
+            previewGroup = { g ->
+                val plan = EngineRouting.planGroup(g)
+                if (plan.candidates.isNotEmpty() && !PlaybackController.isActiveSession(plan.channelKey)) {
+                    PlaybackController.play(context, plan.name, plan.channelKey, plan.candidates, null, preview = true, onExhausted = {})
+                }
+            },
+            playGroup = { g ->
+                val plan = EngineRouting.planGroup(g)
+                val best = plan.candidates.firstOrNull()?.contentId
+                val channel = g.sources.firstOrNull { s -> com.mivisor.app.data.AceStreamLink.contentId(s.channel.url).equals(best, true) }?.channel ?: g.first.channel
+                startInternal(plan, PlayRequest(channel), engineMode)
+            },
+            keyOfChannel = { c -> EngineRouting.candidateOf(c)?.let { EngineRouting.plan(c, library.groups).channelKey } },
+            previewChannel = { c ->
+                val plan = EngineRouting.plan(c, library.groups)
+                if (plan.candidates.isNotEmpty() && !PlaybackController.canReuse(plan.channelKey, plan.preferred)) {
+                    PlaybackController.play(context, plan.name, plan.channelKey, plan.candidates, plan.preferred, explicit = true, preview = true, onExhausted = {})
+                }
+            }
+        )
 
     /** Un partido: una fuente → se reproduce; varias (o ninguna) → "Canales del encuentro". */
     fun watch(event: AgendaEvent, key: String) {
@@ -308,7 +352,8 @@ fun MiVisorApp(vm: MainViewModel) {
                 Lifecycle.Event.ON_STOP -> {
                     quick.onBackground()
                     // Segundo plano: la reproducción interna se corta ya (no sigue descargando) y el motor, al rato.
-                    if (internal != null) { PlaybackController.release(); internal = null }
+                    PlaybackController.release()
+                    internal = null
                     EngineManager.onBackground(context)
                 }
                 else -> Unit
@@ -382,7 +427,7 @@ fun MiVisorApp(vm: MainViewModel) {
                             onOpenCode = { sourceDialog = SourceDialogState(SourceDialogMode.OPEN_CODE) },
                             onManage = { push(Route.Providers, null) },
                             onEditProvider = { sourceDialog = SourceDialogState(SourceDialogMode.EDIT, it.source) },
-                            restoreKey = restoreKey, autoFocus = contentFocus, logos = logos
+                            restoreKey = restoreKey, autoFocus = contentFocus, logos = logos, preview = previewHooks
                         )
                         NavItem.HISTORY -> HistoryScreen(
                             history = playback,
@@ -448,7 +493,7 @@ fun MiVisorApp(vm: MainViewModel) {
                         if (group == null) {
                             Missing("Este canal ya no está en tus proveedores.") { pop() }
                         } else {
-                            ChannelGroupScreen(group, library, route.backLabel, { pop() }, ::playChannel, logos = logos) { optionsFor = it }
+                            ChannelGroupScreen(group, library, route.backLabel, { pop() }, ::playChannel, logos = logos, preview = previewHooks) { optionsFor = it }
                         }
                     }
                     Route.Providers -> {

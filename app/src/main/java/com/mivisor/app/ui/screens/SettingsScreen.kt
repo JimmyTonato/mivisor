@@ -189,6 +189,9 @@ private fun Content(
                     "Motor" to (unsupported ?: "Motor P2P de MiVisor incluido (${android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "?"})"),
                     "Externo" to (com.mivisor.app.engine.ExternalEngineLauncher.handlers(context).takeIf { it.isNotEmpty() }?.joinToString() ?: "Ninguna app de Ace Stream instalada")
                 )
+                var preview by remember { mutableStateOf(prefs.previewEnabled) }
+                ToggleRow("Vista previa en Canales", preview, { preview = !preview; prefs.previewEnabled = preview },
+                    description = "Al dejar el foco en un canal se ve en pequeño y sin sonido (motor interno). OK lo abre en pantalla completa sin volver a cargar.")
                 SecondaryButton("Diagnóstico del motor", onOpenEngineDiagnostics, icon = R.drawable.ic_info)
                 Heading("Reproductor")
                 ToggleRow("Preguntar con qué app abrir", selector, { selector = !selector; prefs.selectorEnabled = selector },

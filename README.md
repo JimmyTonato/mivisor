@@ -482,7 +482,13 @@ MiVisor reproduce los canales Ace Stream **dentro de la app**, sin la app oficia
 
 **Pantalla completa**: panel con canal, «Fuente 2 de 4 · proveedor · N peers», botones *Siguiente fuente*, *Reintentar*, *Abrir con Ace Stream* (si el modo lo permite) y *Volver*. Se oculta solo con vídeo; cualquier tecla lo muestra. Atrás cierra la sesión.
 
-**Fase 2 (pendiente)**: panel de vista previa en Canales (silenciado) y reutilizar esa sesión al pulsar OK.
+**Fase 2 · vista previa en Canales**
+- Panel a la derecha de la rejilla de Canales (y en la pantalla de fuentes de un canal): al dejar el foco ~0,9 s sobre un canal se carga **silenciado** con el motor interno. Mientras busca una fuente con imagen se ve un **spinner** con «Buscando una fuente con imagen… (2 de 5 · FHD)».
+- **OK** sobre ese canal abre la pantalla completa **reutilizando la misma sesión** (solo se quita el silencio). Si la sesión es de otro canal o falló, se empieza de cero.
+- Con el motor interno, OK en una tarjeta de Canales reproduce ya la mejor fuente; «Elegir fuente (N)» en el panel abre la lista de fuentes.
+- La vista previa nunca abre Ace Stream externo y se para al salir de la pantalla o al ir a segundo plano. Se desactiva en Ajustes → Reproductor → «Vista previa en Canales». No hay vista previa en pantallas de móvil ni en modo «Ace Stream externo».
+
+**Prioridad por resolución**: las fuentes se prueban siempre de mayor a menor resolución (4K → FHD → HD → SD → sin indicar, deducida del nombre). Dentro de la misma resolución, primero la última que funcionó. Solo una fuente elegida a mano en la lista va la primera aunque sea de menos resolución; las que fallaron hace poco van al final.
 
 **Limitaciones conocidas**
 - outpace no expone ni persiste el descriptor/infohash resuelto: la caché de resolución de MiVisor guarda solo el historial de éxito por fuente; la resolución la repite el motor (con fallback BEP-9).

@@ -3,8 +3,17 @@ package com.mivisor.app.engine
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 
-/** Una fuente de un canal: un Content ID (el enlace original no se toca). */
-data class SourceCandidate(val contentId: String, val label: String, val provider: String? = null)
+/**
+ * Una fuente de un canal: un Content ID (el enlace original no se toca). [quality] = rango de resolución
+ * (UHD > FHD > HD > SD; 0 = desconocida) y [qualityLabel] su texto ("FHD").
+ */
+data class SourceCandidate(
+    val contentId: String,
+    val label: String,
+    val provider: String? = null,
+    val quality: Int = 0,
+    val qualityLabel: String? = null
+)
 
 /** Por qué una fuente no llegó a vídeo. Cada tipo se ve tal cual en el diagnóstico. */
 enum class FailureKind(val label: String) {
@@ -21,8 +30,9 @@ enum class FailureKind(val label: String) {
 /**
  * Prueba las fuentes de UN canal de una en una (nunca varias a la vez). Lógica pura, sin Android.
  *
- *  - Orden: la última fuente que funcionó en ese canal primero; luego la elegida por el usuario; luego el resto.
- *    Las que fallaron hace poco van al final.
+ *  - Orden: SIEMPRE primero la mayor resolución (UHD → FHD → HD → SD → sin indicar). Dentro de la misma resolución:
+ *    la última que funcionó en ese canal, luego la elegida, luego el resto. Las que fallaron hace poco, al final.
+ *  - Si el usuario eligió UNA fuente concreta ([explicit]), esa va la primera aunque sea de menos resolución.
  *  - Gana la primera que da VÍDEO REPRODUCIBLE (primer fotograma en Media3). Resolver el descriptor, tener peers o
  *    abrir la conexión no cuenta.
  *  - Si la ganadora se cae, se sigue con las que quedan sin probar. Siempre como mucho una activa.
@@ -32,7 +42,8 @@ class SourceSelector(
     candidates: List<SourceCandidate>,
     rememberedGood: String? = null,
     preferred: String? = null,
-    recentlyFailed: Set<String> = emptySet()
+    recentlyFailed: Set<String> = emptySet(),
+    explicit: Boolean = false
 ) {
     sealed class State {
         object Idle : State()
@@ -43,12 +54,20 @@ class SourceSelector(
 
     val order: List<SourceCandidate> = run {
         val unique = candidates.distinctBy { it.contentId.lowercase() }
-        val first = listOfNotNull(
-            unique.firstOrNull { it.contentId.equals(rememberedGood, true) },
-            unique.firstOrNull { it.contentId.equals(preferred, true) }
-        ).distinct()
-        val rest = unique - first.toSet()
-        first + rest.sortedBy { if (it.contentId.lowercase() in recentlyFailed.map(String::lowercase)) 1 else 0 }
+        val failed = recentlyFailed.map(String::lowercase).toSet()
+        val pinned = if (explicit) unique.firstOrNull { it.contentId.equals(preferred, true) } else null
+        fun tier(c: SourceCandidate) = when {
+            c.contentId.equals(rememberedGood, true) -> 0
+            c.contentId.equals(preferred, true) -> 1
+            else -> 2
+        }
+        val rest = unique.filter { it !== pinned }.withIndex().sortedWith(
+            compareBy<IndexedValue<SourceCandidate>> { if (it.value.contentId.lowercase() in failed) 1 else 0 }
+                .thenByDescending { it.value.quality }
+                .thenBy { tier(it.value) }
+                .thenBy { it.index }
+        ).map { it.value }
+        listOfNotNull(pinned) + rest
     }
 
     var state: State = State.Idle

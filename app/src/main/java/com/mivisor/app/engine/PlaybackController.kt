@@ -34,6 +34,8 @@ import java.net.ConnectException
  *  - Fallo temprano con causa (resolución, sin peers, motor caído…) en lugar de esperar a ciegas.
  *  - Cambio rápido de canal: el intento anterior se cancela (generación + job).
  *  - Buffer pequeño y adaptativo ([AdaptiveLoadControl]).
+ *  - Vista previa (Canales): la misma sesión, SILENCIADA. Al pulsar OK sobre ese canal se [promote] (se quita el
+ *    silencio y pasa a pantalla completa) sin reiniciar nada. La vista previa nunca abre Ace Stream externo.
  * Se usa siempre desde el hilo principal.
  */
 @OptIn(UnstableApi::class)
@@ -50,8 +52,18 @@ object PlaybackController {
         val message: String? = null,
         val failure: FailureKind? = null,
         val peers: Int = 0,
-        val canNext: Boolean = false
-    )
+        val canNext: Boolean = false,
+        /** Vista previa silenciada (Canales). */
+        val preview: Boolean = false,
+        /** Canal de la sesión (para reutilizarla al pulsar OK). */
+        val channelKey: String = "",
+        /** Resolución de la fuente actual ("FHD"), si se conoce. */
+        val quality: String? = null,
+        /** Content ID de la fuente actual: solo para comparar en memoria; nunca se muestra ni se registra. */
+        val sourceId: String? = null
+    ) {
+        val active: Boolean get() = phase == Phase.STARTING_ENGINE || phase == Phase.TRYING || phase == Phase.PLAYING
+    }
 
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui.asStateFlow()
@@ -73,6 +85,8 @@ object PlaybackController {
     private var onExhausted: ((FailureKind?) -> Unit)? = null
     private var lastCandidates: List<SourceCandidate> = emptyList()
     private var lastSkippedGaps = 0L
+    private var preview = false
+    private var explicit = false
 
     private val listener = object : Player.Listener {
         override fun onRenderedFirstFrame() {
@@ -120,15 +134,19 @@ object PlaybackController {
         channelKey: String,
         candidates: List<SourceCandidate>,
         preferred: String?,
+        explicit: Boolean = false,
+        preview: Boolean = false,
         onExhausted: (FailureKind?) -> Unit
     ) {
         cancelAttempt()
+        this.preview = preview
+        this.explicit = explicit
         val app = context.applicationContext
         this.channelKey = channelKey
         this.onExhausted = onExhausted
         this.lastCandidates = candidates
         val mem = memory ?: SourceMemory(File(app.filesDir, "engine/sources.json")).also { memory = it }
-        _ui.value = Ui(Phase.STARTING_ENGINE, channelName, 0, candidates.size, message = "Preparando el motor P2P…")
+        _ui.value = Ui(Phase.STARTING_ENGINE, channelName, 0, candidates.size, message = "Preparando el motor P2P…", preview = preview, channelKey = channelKey)
         EngineDiagnostics.update { it.copy(channel = channelName, sourceCount = candidates.size, sourceSwitches = 0, rebuffers = 0, firstFrameMs = null) }
         job = scope.launch {
             val engine = EngineManager.ensureStarted(app)
@@ -136,20 +154,39 @@ object PlaybackController {
             if (base == null) {
                 _ui.value = _ui.value.copy(phase = Phase.FAILED, failure = FailureKind.ENGINE_DOWN, message = engine.message ?: "El motor P2P no arrancó")
                 EngineDiagnostics.log(EngineDiagnostics.Cat.PROCESS, "No se pudo usar el motor: ${engine.message}", important = true)
-                onExhausted(FailureKind.ENGINE_DOWN)
+                if (!preview) onExhausted(FailureKind.ENGINE_DOWN)
                 return@launch
             }
             baseUrl = base
             val (good, failed) = withContext(Dispatchers.IO) {
                 mem.rememberedGood(channelKey) to mem.recentlyFailed(candidates.map { it.contentId })
             }
-            val sel = SourceSelector(candidates, good, preferred, failed)
+            val sel = SourceSelector(candidates, good, preferred, failed, explicit)
             selector = sel
             ensurePlayer(app)
             loadControl?.policy?.reset()
             EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Canal \"$channelName\": ${sel.order.size} fuente(s)" + (good?.let { " · primero la última buena ${mask(it)}" } ?: ""), important = true)
             attempt(sel.start())
         }
+    }
+
+    /** ¿Hay una sesión en marcha (vista previa o no) de este canal? */
+    fun isActiveSession(channelKey: String): Boolean = _ui.value.active && _ui.value.channelKey == channelKey
+
+    /** ¿Se puede reutilizar la sesión actual para ver [channelKey] (y, si se eligió una fuente, que sea esa)? */
+    fun canReuse(channelKey: String, explicitSource: String?): Boolean =
+        isActiveSession(channelKey) && (explicitSource == null || _ui.value.sourceId.equals(explicitSource, ignoreCase = true))
+
+    /**
+     * La vista previa pasa a ser LA reproducción: se quita el silencio y se recupera la alternativa externa del modo
+     * Automático. No se reinicia el motor ni el reproductor: misma sesión, misma fuente.
+     */
+    fun promote(channelName: String, onExhausted: (FailureKind?) -> Unit) {
+        preview = false
+        this.onExhausted = onExhausted
+        player?.volume = 1f
+        _ui.value = _ui.value.copy(preview = false, channel = channelName)
+        EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Vista previa → pantalla completa (misma sesión)", important = true)
     }
 
     /** Opción avanzada: pasar a la siguiente fuente aunque la actual funcione. */
@@ -165,7 +202,7 @@ object PlaybackController {
     /** Reintenta el canal desde el principio. */
     fun retry(context: Context) {
         if (lastCandidates.isEmpty()) return
-        play(context, _ui.value.channel ?: "", channelKey, lastCandidates, null, onExhausted ?: {})
+        play(context, _ui.value.channel ?: "", channelKey, lastCandidates, null, explicit = false, preview = preview, onExhausted = onExhausted ?: {})
     }
 
     /** Para la reproducción y cierra la sesión del motor (el motor sigue vivo para el siguiente canal). */
@@ -213,15 +250,16 @@ object PlaybackController {
                 _ui.value = _ui.value.copy(
                     phase = Phase.TRYING, sourceIndex = state.index + 1, sourceCount = sel.order.size,
                     sourceLabel = state.source.provider ?: state.source.label, message = "Buscando peers y preparando vídeo…",
-                    failure = null, canNext = state.index + 1 < sel.order.size, peers = 0
+                    failure = null, canNext = state.index + 1 < sel.order.size, peers = 0, quality = state.source.qualityLabel,
+                    sourceId = state.source.contentId
                 )
                 EngineDiagnostics.update { it.copy(sourceIndex = state.index + 1, sourceCount = sel.order.size, sourceId = mask(state.source.contentId), sourceSwitches = sel.switches) }
-                EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Probando fuente ${state.index + 1}/${sel.order.size}: ${mask(state.source.contentId)}", important = true)
+                EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Probando fuente ${state.index + 1}/${sel.order.size} (${state.source.qualityLabel ?: "resolución ?"}): ${mask(state.source.contentId)}" + if (preview) " · vista previa" else "", important = true)
                 val p = player ?: return
                 p.stop()
                 p.clearMediaItems()
                 p.setMediaItem(MediaItem.Builder().setMediaId(EngineApi.key(state.source.contentId)).setUri(Uri.parse(EngineApi.streamUrl(base, state.source.contentId))).build())
-                p.volume = 1f
+                p.volume = if (preview) 0f else 1f
                 p.prepare()
                 p.play()
                 startMonitor(state)
@@ -233,7 +271,7 @@ object PlaybackController {
                 _ui.value = _ui.value.copy(phase = Phase.FAILED, failure = kind, canNext = false,
                     message = "Ninguna de las ${sel.order.size} fuentes llegó a vídeo" + (kind?.let { ". Último motivo: ${it.label}" } ?: ""))
                 EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Sin fuentes válidas (${kind?.label ?: "—"})", important = true)
-                onExhausted?.invoke(kind)
+                if (!preview) onExhausted?.invoke(kind)
             }
             else -> Unit
         }
