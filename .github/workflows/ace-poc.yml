@@ -47,8 +47,8 @@ jobs:
         run: |
           git clone --filter=blob:none https://github.com/jamezrin/outpace.git "$RUNNER_TEMP/outpace"
           cd "$RUNNER_TEMP/outpace"
-          git checkout a6586f4187f38e57c4dfc431ac47a6e49f4edf7f
-          test "$(git rev-parse HEAD)" = "a6586f4187f38e57c4dfc431ac47a6e49f4edf7f"
+          git checkout 3b9b4ab76b5753acc007216f75b0fbfcd39325eb
+          test "$(git rev-parse HEAD)" = "3b9b4ab76b5753acc007216f75b0fbfcd39325eb"
 
       - name: Build P2P engine for Android ARM64 and ARMv7
         shell: bash
@@ -98,15 +98,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp acepoc/app/build/outputs/apk/debug/app-debug.apk dist/MiVisor-AceP2P-Test.apk
-          sha256sum dist/MiVisor-AceP2P-Test.apk | tee dist/MiVisor-AceP2P-Test.apk.sha256
+          cp acepoc/app/build/outputs/apk/debug/app-debug.apk dist/MiVisor-AceP2P-Test-v2.apk
+          sha256sum dist/MiVisor-AceP2P-Test-v2.apk | tee dist/MiVisor-AceP2P-Test-v2.apk.sha256
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MiVisor-AceP2P-Test
+          name: MiVisor-AceP2P-Test-v2
           path: |
-            dist/MiVisor-AceP2P-Test.apk
-            dist/MiVisor-AceP2P-Test.apk.sha256
+            dist/MiVisor-AceP2P-Test-v2.apk
+            dist/MiVisor-AceP2P-Test-v2.apk.sha256
           if-no-files-found: error
           retention-days: 7
