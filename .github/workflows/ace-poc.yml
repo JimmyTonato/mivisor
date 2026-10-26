@@ -113,15 +113,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp acepoc/app/build/outputs/apk/debug/app-debug.apk dist/MiVisor-AceP2P-Test-v3.apk
-          sha256sum dist/MiVisor-AceP2P-Test-v3.apk | tee dist/MiVisor-AceP2P-Test-v3.apk.sha256
+          cp acepoc/app/build/outputs/apk/debug/app-debug.apk dist/MiVisor-AceP2P-Test-v3.2.apk
+          sha256sum dist/MiVisor-AceP2P-Test-v3.2.apk | tee dist/MiVisor-AceP2P-Test-v3.2.apk.sha256
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MiVisor-AceP2P-Test-v3
+          name: MiVisor-AceP2P-Test-v3.2
           path: |
-            dist/MiVisor-AceP2P-Test-v3.apk
-            dist/MiVisor-AceP2P-Test-v3.apk.sha256
+            dist/MiVisor-AceP2P-Test-v3.2.apk
+            dist/MiVisor-AceP2P-Test-v3.2.apk.sha256
           if-no-files-found: error
           retention-days: 7
