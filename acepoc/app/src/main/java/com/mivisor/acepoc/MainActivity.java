@@ -506,12 +506,21 @@ public class MainActivity extends Activity {
     }
 
     private void stopEngineOnly() {
-        if (engineProcess != null) {
+        Process process = engineProcess;
+        engineProcess = null;
+        if (process != null) {
             try {
-                engineProcess.destroy();
+                process.destroy();
+                if (!process.waitFor(1200, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    process.destroyForcibly();
+                    process.waitFor(800, java.util.concurrent.TimeUnit.MILLISECONDS);
+                }
             } catch (Exception ignored) {
+                try {
+                    process.destroyForcibly();
+                } catch (Exception ignoredToo) {
+                }
             }
-            engineProcess = null;
         }
         engineReady = false;
         engineBase = null;
@@ -704,6 +713,14 @@ public class MainActivity extends Activity {
         LinearLayout logButtons = new LinearLayout(this);
         logButtons.setOrientation(LinearLayout.HORIZONTAL);
 
+        Button restart = new Button(this);
+        restart.setText("REINICIAR MOTOR");
+        restart.setOnClickListener(v -> {
+            addAppLog("ENGINE MANUAL RESTART");
+            stopCurrent(true);
+            startEngine();
+        });
+
         Button clear = new Button(this);
         clear.setText("LIMPIAR");
         clear.setOnClickListener(v -> {
@@ -721,6 +738,7 @@ public class MainActivity extends Activity {
         close.setText("CERRAR");
         close.setOnClickListener(v -> settingsDialog.dismiss());
 
+        logButtons.addView(restart);
         logButtons.addView(clear);
         logButtons.addView(copy);
         logButtons.addView(close);
