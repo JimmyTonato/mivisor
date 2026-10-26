@@ -38,8 +38,9 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.99.1
           targets: aarch64-linux-android,armv7-linux-androideabi
 
       - name: Checkout independent P2P engine source
@@ -47,8 +48,8 @@ jobs:
         run: |
           git clone --filter=blob:none https://github.com/jamezrin/outpace.git "$RUNNER_TEMP/outpace"
           cd "$RUNNER_TEMP/outpace"
-          git checkout 3b9b4ab76b5753acc007216f75b0fbfcd39325eb
-          test "$(git rev-parse HEAD)" = "3b9b4ab76b5753acc007216f75b0fbfcd39325eb"
+          git checkout 7d77f410c9bde453cb5f5816ab37f5e571d6e5f0
+          test "$(git rev-parse HEAD)" = "7d77f410c9bde453cb5f5816ab37f5e571d6e5f0"
 
       - name: Build P2P engine for Android ARM64 and ARMv7
         shell: bash
@@ -98,15 +99,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          cp acepoc/app/build/outputs/apk/debug/app-debug.apk dist/MiVisor-AceP2P-Test-v2.apk
-          sha256sum dist/MiVisor-AceP2P-Test-v2.apk | tee dist/MiVisor-AceP2P-Test-v2.apk.sha256
+          cp acepoc/app/build/outputs/apk/debug/app-debug.apk dist/MiVisor-AceP2P-Test-v3.apk
+          sha256sum dist/MiVisor-AceP2P-Test-v3.apk | tee dist/MiVisor-AceP2P-Test-v3.apk.sha256
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MiVisor-AceP2P-Test-v2
+          name: MiVisor-AceP2P-Test-v3
           path: |
-            dist/MiVisor-AceP2P-Test-v2.apk
-            dist/MiVisor-AceP2P-Test-v2.apk.sha256
+            dist/MiVisor-AceP2P-Test-v3.apk
+            dist/MiVisor-AceP2P-Test-v3.apk.sha256
           if-no-files-found: error
           retention-days: 7
