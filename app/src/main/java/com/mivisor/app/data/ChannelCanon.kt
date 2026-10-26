@@ -45,8 +45,27 @@ object ChannelCanon {
     private val LIST_TAGS = setOf("spain", "espana", "es", "esp", "loop", "acestream", "ace", "stream", "eventos")
     /** País / versión: el mismo canal en otra versión → misma variante (el nombre original se ve en cada fuente). */
     private val EDITIONS = setOf(
-        "bar", "bares", "de", "deutschland", "germany", "it", "ita", "italia", "italy", "uk", "pt", "portugal",
-        "fr", "france", "mx", "mexico", "us", "usa", "en", "eng", "ingles", "english", "latam", "ar", "co"
+        "bar", "bares", "deutschland", "germany", "ita", "italia", "italy", "portugal", "france", "mexico", "usa",
+        "eng", "ingles", "english", "latam", "belgium", "belgie", "belgique", "nederland", "holland", "polska", "poland",
+        "romania", "russia", "turkiye", "turkey", "greece", "hellas", "croatia", "serbia", "srbija", "slovenija",
+        "czech", "slovakia", "hungary", "austria", "osterreich", "schweiz", "suisse", "sverige", "norge", "danmark",
+        "suomi", "ireland", "brasil", "brazil", "argentina", "chile", "colombia", "peru", "canada", "australia", "arabia"
+    )
+    /**
+     * Códigos de país de 2 letras ("ESPN 2 BE", "DAZN 1 DE"). Solo se quitan si van EN MAYÚSCULAS o al final, porque
+     * en minúsculas son palabras ("Canal de Historia", "No te lo pierdas").
+     */
+    private val COUNTRY_CODES = setOf(
+        "de", "it", "uk", "gb", "pt", "fr", "mx", "us", "en", "ar", "co", "be", "nl", "pl", "ro", "ru", "bg", "hr", "rs",
+        "si", "ba", "cz", "sk", "hu", "at", "ch", "se", "no", "dk", "fi", "gr", "tr", "cy", "al", "mk", "me", "ua", "ie",
+        "br", "cl", "pe", "ca", "au", "ad"
+    )
+    /** "M LaLiga", "M Deportes": la M es Movistar (M+ con el "+" perdido) si va delante de un canal suyo. */
+    private val MOVISTAR_PRODUCTS = setOf(
+        "laliga", "deportes", "champions", "vamos", "golf", "ellas", "plus", "estrenos", "documentales", "originales",
+        "hits", "accion", "comedia", "drama", "clasicos", "cine", "series", "seriesxtra", "futbol", "f1", "motor",
+        "tenis", "baloncesto", "liga", "copa", "toros", "indie", "romance", "western", "musica", "tematico",
+        "supercopa", "euroliga", "motogp", "formula", "suscripcion", "ligadecampeones", "cineespanol", "festival"
     )
     private val ROMAN = setOf("i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x")
     private val COUNTRY_PREFIX = Regex("""^\s*(ES|ESP|SPAIN|UK|EN|DE|IT|PT|FR|US|MX|AR)\s*[:|]\s*""", RegexOption.IGNORE_CASE)
@@ -73,7 +92,9 @@ object ChannelCanon {
         val words = text.split(SEPARATORS).map { it.trim(':', '-', '.', '·', '*', '#', '"', '\'') }.filter { it.isNotEmpty() }
             .map { it to norm(it) }.filter { it.second.isNotEmpty() }.toMutableList()
 
+        splitGlued(words)
         joinAliases(words)
+        movistarM(words)
 
         val kept = ArrayList<Pair<String, String>>()
         var i = 0
@@ -88,6 +109,7 @@ object ChannelCanon {
                 }
                 tok in QUALITY || tok in LIST_TAGS || tok.contains("shickat") -> Unit
                 tok in EDITIONS && kept.isNotEmpty() -> Unit
+                tok in COUNTRY_CODES && kept.isNotEmpty() && (word == word.uppercase() || i == words.lastIndex) -> Unit
                 tok in providerTokens && kept.isNotEmpty() -> Unit           // proveedor detrás del nombre
                 looksLikeIdFragment(tok) && kept.isNotEmpty() -> Unit
                 else -> kept += word to tok
@@ -142,6 +164,29 @@ object ChannelCanon {
         for (j in words.indices) if (words[j].second == "formula1") words[j] = words[j].first to "f1"
     }
 
+    /** "Esport3" → Esport 3 · "ESPN2" → ESPN 2 · "Eurosport360" → Eurosport 360 (letras ≥3 + número pegado). */
+    private fun splitGlued(words: MutableList<Pair<String, String>>) {
+        var i = 0
+        while (i < words.size) {
+            val (word, tok) = words[i]
+            val m = GLUED.matchEntire(tok)
+            if (m != null && word.length > m.groupValues[2].length) {
+                val digits = m.groupValues[2]
+                words[i] = word.dropLast(digits.length) to m.groupValues[1]
+                words.add(i + 1, digits to digits)
+                i += 2
+            } else i++
+        }
+    }
+    private val GLUED = Regex("""([a-z]{3,})(\d{1,3})""")
+
+    /** "M LALIGA" / "M Deportes" → Movistar LaLiga / Movistar Deportes (el nombre visible no cambia). */
+    private fun movistarM(words: MutableList<Pair<String, String>>) {
+        if (words.size >= 2 && words[0].second == "m" && words[1].second in MOVISTAR_PRODUCTS) {
+            words[0] = words[0].first to "movistar"
+        }
+    }
+
     /** "63d", "0cb", "d8e", "a1b2c3": fragmento de ID (hexadecimal con letras Y números). "f1" o "4k" no. */
     private fun looksLikeIdFragment(tok: String): Boolean =
         tok.length in 3..12 && tok.all { it in '0'..'9' || it in 'a'..'f' } && tok.any(Char::isDigit) && tok.any(Char::isLetter)
@@ -151,9 +196,11 @@ object ChannelCanon {
         val lower = Normalizer.normalize(ChannelNameNormalizer.display(text).lowercase(), Normalizer.Form.NFD)
             .replace(Regex("\\p{Mn}+"), "")
         return lower.split(Regex("\\s+")).joinToString(" ") { w ->
-            when (w) {
-                "m+", "movistar+", "m+plus", "movistarplus+", "movistarplus" -> "movistar"
-                else -> w.replace(Regex("[^a-z0-9]"), "")
+            when {
+                w in setOf("m+", "movistar+", "m+plus", "movistarplus+", "movistarplus") -> "movistar"
+                // "Canal+" ≠ "Canal", "Sport+" ≠ "Sport": el "+" forma parte del nombre.
+                w.length > 1 && w.endsWith("+") -> w.replace(Regex("[^\\p{L}\\p{N}]"), "") + "plus"
+                else -> w.replace(Regex("[^\\p{L}\\p{N}]"), "")
             }
         }.trim().replace(Regex("\\s+"), " ")
     }

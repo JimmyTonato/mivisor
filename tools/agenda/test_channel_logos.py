@@ -35,7 +35,12 @@ class GroupsTest(unittest.TestCase):
         self.assertEqual(b.group_of("LaLiga TV Hypermotion"), "laliga")
         self.assertEqual(b.group_of("Eurosport 2"), "eurosport")
         self.assertEqual(b.group_of("Tennis Channel"), "tennischannel")
-        self.assertIsNone(b.group_of("Primera Federación (RFEF)"))
+        self.assertEqual(b.group_of("Primera Federación (RFEF)"), "rfef")
+        self.assertIsNone(b.group_of("Eventual"))
+        self.assertEqual(b.group_of("CANAL+ Sport"), "canalplus")
+        self.assertIsNone(b.group_of("Canal Tenis"))
+        self.assertEqual(b.group_of("Eurosport360"), "eurosport")
+        self.assertEqual(b.group_of("Polsat Sport Extra"), "polsat")
         self.assertIsNone(b.group_of("Golf+"))                      # "gol" no es prefijo de la palabra "golf"
 
 
@@ -69,6 +74,27 @@ class IptvTest(unittest.TestCase):
         self.assertEqual(out["movistar laliga"]["group"], "movistar")
         self.assertEqual(out["movistar laliga"]["aliases"], ["M+ LaLiga"])
         self.assertEqual(out["dazn 1"]["group"], "dazn")
+
+
+class WideSelectionTest(unittest.TestCase):
+    def test_sports_anywhere_general_in_major_countries_home_country_wins(self):
+        channels = [
+            {"id": "BTSport1.uk", "name": "BT Sport 1", "country": "GB", "categories": ["sports"]},
+            {"id": "PolsatSport.pl", "name": "Polsat Sport", "country": "PL", "categories": ["sports"]},
+            {"id": "ZDF.de", "name": "ZDF", "country": "DE", "categories": ["general"]},
+            {"id": "Random.vn", "name": "Random VN", "country": "VN", "categories": ["general"]},
+            {"id": "Cuatro.es", "name": "Cuatro", "country": "ES", "categories": ["general"]},
+            {"id": "Cuatro.mx", "name": "Cuatro", "country": "MX", "categories": ["general"]},
+            {"id": "Disney.de", "name": "Disney Channel", "country": "DE", "categories": ["kids"]},
+        ]
+        logos = [{"channel": c["id"], "url": f"https://l/{c['id']}.png", "format": "PNG", "width": 300} for c in channels]
+        out = iptv_entries(channels, logos, brands())
+        self.assertEqual(set(out), {"bt sport 1", "polsat sport", "zdf", "cuatro", "disney channel"})
+        self.assertEqual(out["cuatro"]["logo"], "https://l/Cuatro.es.png")       # gana el de España
+        self.assertEqual(out["bt sport 1"]["category"], "sports")
+        self.assertEqual(out["zdf"]["category"], "general")
+        self.assertEqual(out["disney channel"]["category"], "kids")
+        self.assertEqual(out["polsat sport"]["group"], "polsat")
 
 
 class CatalogTest(unittest.TestCase):

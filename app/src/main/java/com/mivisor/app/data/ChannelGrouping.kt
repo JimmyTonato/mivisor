@@ -96,17 +96,27 @@ object ChannelGrouping {
      */
     fun group(providers: List<Triple<String, String, List<Channel>>>): List<ChannelGroup> {
         val providerNames = providers.map { it.second }
-        val order = LinkedHashMap<String, MutableList<ChannelSource>>()
-        val names = HashMap<String, MutableList<String>>()
         val seenUrls = HashSet<String>()
+        val parsed = ArrayList<Triple<Triple<String, String, Channel>, ChannelCanon.Parsed, Unit>>()
         for ((providerId, providerName, channels) in providers) {
             for (channel in channels) {
                 if (!seenUrls.add(channel.url.trim())) continue
-                val canon = ChannelCanon.parse(channel.name, providerNames)
-                order.getOrPut(canon.baseKey) { ArrayList() } +=
-                    ChannelSource(channel, providerId, providerName, quality(channel.name), canon.variantName, canon.variantKey, canon.number)
-                names.getOrPut(canon.baseKey) { ArrayList() } += canon.baseName
+                parsed += Triple(Triple(providerId, providerName, channel), ChannelCanon.parse(channel.name, providerNames), Unit)
             }
+        }
+        // El número final solo separa variantes si de verdad hay varias del mismo canal ("DAZN 1", "DAZN 2"…).
+        // "Calle 13" o "Antena 3" solos siguen siendo un canal con su nombre completo.
+        val variantsPerBase = parsed.groupBy { it.second.baseKey }.mapValues { (_, list) -> list.map { it.second.variantKey }.toSet().size }
+        val order = LinkedHashMap<String, MutableList<ChannelSource>>()
+        val names = HashMap<String, MutableList<String>>()
+        for ((p, canon) in parsed) {
+            val (providerId, providerName, channel) = p
+            val split = canon.number == null || (variantsPerBase[canon.baseKey] ?: 0) > 1
+            val key = if (split) canon.baseKey else canon.variantKey
+            order.getOrPut(key) { ArrayList() } += ChannelSource(
+                channel, providerId, providerName, quality(channel.name), canon.variantName, canon.variantKey, canon.number.takeIf { split }
+            )
+            names.getOrPut(key) { ArrayList() } += if (split) canon.baseName else canon.variantName
         }
         return order.map { (k, sources) ->
             val variantOrder = sources.map { it.variantKey }.distinct().sortedBy { vk -> sources.first { it.variantKey == vk }.number ?: 0 }

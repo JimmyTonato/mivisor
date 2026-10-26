@@ -423,16 +423,19 @@ fun ChannelGroupScreen(
                 else "${group.sources.size} fuentes disponibles para este canal.",
                 back = backLabel to onBack
             )
-            LazyColumn(
-                Modifier.weight(1f).fillMaxWidth(),
+            // Tarjetas en rejilla: con 20 fuentes caben 4-5 por fila en vez de bajar una a una.
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(if (layout.compact) 160.dp else 210.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 val firstSource = group.sources.first()
                 for (variant in variants) {
+                    val vLogo = logos.resolve(variant.name, variant.sources.first().channel.group)
                     // Cabecera de la variante ("DAZN LaLiga 2" con su logo) solo si hay más de una.
-                    if (variants.size > 1) item(key = "var:${variant.key}") {
-                        val vLogo = remember(variant.key, logos) { logos.resolve(variant.name, variant.sources.first().channel.group) }
+                    if (variants.size > 1) item(key = "var:${variant.key}", span = { GridItemSpan(maxLineSpan) }) {
                         Row(
                             Modifier.fillMaxWidth().padding(top = if (variant === variants.first()) 0.dp else 10.dp, bottom = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -444,8 +447,8 @@ fun ChannelGroupScreen(
                             Txt("${variant.sources.size} ${if (variant.sources.size == 1) "fuente" else "fuentes"}", NeonType.Small, color = Neon.Faint)
                         }
                     }
-                    itemsIndexed(variant.sources, key = { i, s -> "${variant.key}_${s.channel.id}_$i" }) { _, source ->
-                        SourceRow(source, { onPlay(source.channel) }, { onOptions(source.channel) },
+                    items(variant.sources, key = { s -> "${variant.key}_${s.channel.id}" }) { source ->
+                        SourceCard(source, vLogo, { onPlay(source.channel) }, { onOptions(source.channel) },
                             if (source === firstSource) Modifier.focusRequester(first) else Modifier)
                     }
                 }
@@ -489,40 +492,40 @@ fun ChannelGroupScreen(
     }
 }
 
+/** Una fuente: logo del CANAL (no las iniciales del proveedor), nombre original, proveedor, calidad y nota de la lista. */
 @Composable
-private fun SourceRow(source: ChannelSource, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier) {
+private fun SourceCard(source: ChannelSource, logo: ResolvedLogo, onClick: () -> Unit, onLongClick: () -> Unit, modifier: Modifier) {
     TvClickable(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.fillMaxWidth().height(64.dp),
+        modifier = modifier.fillMaxWidth().height(122.dp),
         shape = RoundedCornerShape(14.dp),
         color = Neon.Panel,
         focusedColor = Neon.PanelHi,
         borderColor = Neon.Stroke,
-        focusedScale = 1.015f,
-        contentAlignment = Alignment.CenterStart
+        focusedScale = 1.03f
     ) { focused ->
-        Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            ChannelLogo(source.providerName, 42.dp)
-            Box(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Txt(source.channel.name, NeonType.H3.copy(fontSize = 15.sp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProviderTag(source.providerName)
+        Column(Modifier.fillMaxSize().padding(10.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                ChannelLogoBadge(logo, 56.dp, 32.dp)
+                Box(Modifier.weight(1f))
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     QualityTag(source.quality)
                     KindBadge(source.channel.kind, focused)
-                    source.channel.group?.let { Txt(it, NeonType.Pill, color = Neon.Faint) }
                 }
             }
-            Row(
-                Modifier.height(36.dp).background(if (focused) Neon.Cyan else Neon.PanelHi, RoundedCornerShape(10.dp)).padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(R.drawable.ic_play, if (focused) Neon.Bg else Neon.Dim, size = 14.dp)
-                Box(Modifier.width(8.dp))
-                Txt("Ver canal", NeonType.Body.copy(fontWeight = FontWeight.Bold), color = if (focused) Neon.Bg else Neon.Dim)
+            Box(Modifier.height(6.dp))
+            // Nombre tal como viene en la lista: sirve para distinguir fuentes del mismo canal.
+            Txt(source.channel.name, NeonType.H3.copy(fontSize = 13.sp), maxLines = 2)
+            Box(Modifier.weight(1f))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProviderTag(source.providerName)
+                source.channel.group?.let { Txt(it, NeonType.Pill, color = Neon.Faint, maxLines = 1, modifier = Modifier.weight(1f, fill = false)) }
+                Box(Modifier.weight(1f))
+                if (focused) Icon(R.drawable.ic_play, Neon.Cyan, size = 14.dp)
             }
         }
     }
 }
+
 

@@ -73,7 +73,7 @@ class ChannelLogosTest {
         val tennis = res.resolve("Tennis Channel")
         assertEquals("tennischannel", tennis.groupKey)
         assertNull(tennis.best)                                                             // → icono genérico
-        val rfef = res.resolve("Primera Federación (RFEF)")
+        val rfef = res.resolve("Eventual")
         assertNull(rfef.groupKey)
         assertNull(rfef.best)
         // Pista del grupo de la lista del proveedor cuando el nombre no dice nada.
@@ -98,7 +98,7 @@ class ChannelLogosTest {
     }
 
     @Test fun sectionsByGroupKeepOrderAndPutOthersLast() {
-        val names = listOf("DAZN 1", "Primera Federación (RFEF)", "M+ LaLiga", "DAZN F1", "🄼🄾🅅🄸🅂🅃🄰🅁 🅅🄰🄼🄾🅂", "Eurosport 1")
+        val names = listOf("DAZN 1", "Eventual", "M+ LaLiga", "DAZN F1", "🄼🄾🅅🄸🅂🅃🄰🅁 🅅🄰🄼🄾🅂", "Eurosport 1")
         val sections = com.mivisor.app.data.logos.LogoSections.build(names, resolver(), { it }, { null })
         assertEquals(listOf("dazn", "movistar", "eurosport", null), sections.map { it.key })
         assertEquals(listOf("DAZN 1", "DAZN F1"), sections[0].items.map { it.first })
@@ -107,7 +107,7 @@ class ChannelLogosTest {
         assertEquals("Movistar Plus+", sections[1].name)
         assertEquals("https://iptv/vamos.png", sections[1].items[1].second.channelLogo)   // nombre decorativo → M+ Vamos
         assertEquals(com.mivisor.app.data.logos.LogoSections.OTHERS, sections.last().name)
-        assertEquals(listOf("Primera Federación (RFEF)"), sections.last().items.map { it.first })
+        assertEquals(listOf("Eventual"), sections.last().items.map { it.first })
     }
 
     /** Caso de la captura: el catálogo traía el logo de "DAZN 1" como logo del grupo DAZN. */

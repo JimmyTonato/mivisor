@@ -8,7 +8,8 @@
         "movistar plus",
         "movistar+",
         "movistar",
-        "m+"
+        "m+",
+        "liga de campeones"
       ],
       "flagship": [
         "Movistar Plus+",
@@ -70,7 +71,11 @@
         "tdp",
         "rtve",
         "la 1",
-        "la 2"
+        "la 2",
+        "clan",
+        "canal 24 horas",
+        "24h",
+        "tve"
       ],
       "flagship": [
         "RTVE"
@@ -104,7 +109,9 @@
       "name": "Sky Sports",
       "aliases": [
         "sky sports",
-        "sky sport"
+        "sky sport",
+        "skysp",
+        "sky sp"
       ],
       "flagship": [
         "Sky Sports"
@@ -136,7 +143,8 @@
       "name": "TNT Sports",
       "aliases": [
         "tnt sports",
-        "tnt sport"
+        "tnt sport",
+        "bt sport"
       ],
       "flagship": [
         "TNT Sports"
@@ -151,6 +159,374 @@
       ],
       "flagship": [
         "Red Bull TV"
+      ],
+      "logo": ""
+    },
+    "fox": {
+      "name": "FOX Sports",
+      "aliases": [
+        "fox sports",
+        "fox sport",
+        "fox deportes",
+        "fox premium",
+        "fox"
+      ],
+      "flagship": [
+        "FOX Sports",
+        "FOX"
+      ],
+      "logo": ""
+    },
+    "canalplus": {
+      "name": "CANAL+",
+      "aliases": [
+        "canal+",
+        "canal plus"
+      ],
+      "flagship": [
+        "CANAL+",
+        "Canal+"
+      ],
+      "logo": ""
+    },
+    "polsat": {
+      "name": "Polsat Sport",
+      "aliases": [
+        "polsat"
+      ],
+      "flagship": [
+        "Polsat Sport",
+        "Polsat"
+      ],
+      "logo": ""
+    },
+    "arena": {
+      "name": "Arena Sport",
+      "aliases": [
+        "arena sport"
+      ],
+      "flagship": [
+        "Arena Sport"
+      ],
+      "logo": ""
+    },
+    "sportklub": {
+      "name": "Sport Klub",
+      "aliases": [
+        "sport klub",
+        "sportklub"
+      ],
+      "flagship": [
+        "Sport Klub"
+      ],
+      "logo": ""
+    },
+    "tvp": {
+      "name": "TVP",
+      "aliases": [
+        "tvp"
+      ],
+      "flagship": [
+        "TVP Sport",
+        "TVP"
+      ],
+      "logo": ""
+    },
+    "viasat": {
+      "name": "Viasat",
+      "aliases": [
+        "viasat"
+      ],
+      "flagship": [
+        "Viasat Sport",
+        "Viasat"
+      ],
+      "logo": ""
+    },
+    "setanta": {
+      "name": "Setanta Sports",
+      "aliases": [
+        "setanta"
+      ],
+      "flagship": [
+        "Setanta Sports",
+        "Setanta"
+      ],
+      "logo": ""
+    },
+    "ziggo": {
+      "name": "Ziggo Sport",
+      "aliases": [
+        "ziggo"
+      ],
+      "flagship": [
+        "Ziggo Sport"
+      ],
+      "logo": ""
+    },
+    "magenta": {
+      "name": "MagentaSport",
+      "aliases": [
+        "magenta sport",
+        "magentasport",
+        "magenta"
+      ],
+      "flagship": [
+        "MagentaSport"
+      ],
+      "logo": ""
+    },
+    "rtl": {
+      "name": "RTL",
+      "aliases": [
+        "rtl",
+        "super rtl",
+        "rtl+",
+        "rtl plus"
+      ],
+      "flagship": [
+        "RTL"
+      ],
+      "logo": ""
+    },
+    "orf": {
+      "name": "ORF",
+      "aliases": [
+        "orf"
+      ],
+      "flagship": [
+        "ORF"
+      ],
+      "logo": ""
+    },
+    "ardzdf": {
+      "name": "ARD / ZDF",
+      "aliases": [
+        "zdf",
+        "ard",
+        "das erste"
+      ],
+      "flagship": [
+        "ZDF",
+        "Das Erste"
+      ],
+      "logo": ""
+    },
+    "prosieben": {
+      "name": "ProSiebenSat.1",
+      "aliases": [
+        "prosieben",
+        "pro7",
+        "sat 1",
+        "sat1",
+        "kabel eins",
+        "sixx"
+      ],
+      "flagship": [
+        "ProSieben",
+        "SAT.1"
+      ],
+      "logo": ""
+    },
+    "servus": {
+      "name": "ServusTV",
+      "aliases": [
+        "servus tv",
+        "servustv"
+      ],
+      "flagship": [
+        "ServusTV"
+      ],
+      "logo": ""
+    },
+    "match": {
+      "name": "Match!",
+      "aliases": [
+        "match"
+      ],
+      "flagship": [
+        "Match TV",
+        "Match!"
+      ],
+      "logo": ""
+    },
+    "premiersports": {
+      "name": "Premier Sports",
+      "aliases": [
+        "premier sports",
+        "premier sport"
+      ],
+      "flagship": [
+        "Premier Sports"
+      ],
+      "logo": ""
+    },
+    "nba": {
+      "name": "NBA TV",
+      "aliases": [
+        "nba"
+      ],
+      "flagship": [
+        "NBA TV"
+      ],
+      "logo": ""
+    },
+    "ufc": {
+      "name": "UFC",
+      "aliases": [
+        "ufc"
+      ],
+      "flagship": [
+        "UFC Fight Pass",
+        "UFC"
+      ],
+      "logo": ""
+    },
+    "realmadrid": {
+      "name": "Real Madrid TV",
+      "aliases": [
+        "real madrid"
+      ],
+      "flagship": [
+        "Real Madrid TV"
+      ],
+      "logo": ""
+    },
+    "rfef": {
+      "name": "RFEF",
+      "aliases": [
+        "rfef",
+        "1 federacion",
+        "primera federacion"
+      ],
+      "flagship": [
+        "RFEF TV"
+      ],
+      "logo": ""
+    },
+    "atresmedia": {
+      "name": "Atresmedia",
+      "aliases": [
+        "antena 3",
+        "lasexta",
+        "la sexta",
+        "neox",
+        "atreseries"
+      ],
+      "flagship": [
+        "Antena 3"
+      ],
+      "logo": ""
+    },
+    "mediaset": {
+      "name": "Mediaset España",
+      "aliases": [
+        "telecinco",
+        "cuatro",
+        "fdf",
+        "energy",
+        "divinity",
+        "boing",
+        "be mad",
+        "bemad"
+      ],
+      "flagship": [
+        "Telecinco"
+      ],
+      "logo": ""
+    },
+    "amc": {
+      "name": "AMC Networks",
+      "aliases": [
+        "amc",
+        "canal cocina",
+        "caza y pesca",
+        "dark",
+        "odisea",
+        "canal hollywood",
+        "xtrm",
+        "sol musica",
+        "decasa",
+        "somos"
+      ],
+      "flagship": [
+        "AMC"
+      ],
+      "logo": ""
+    },
+    "axn": {
+      "name": "AXN",
+      "aliases": [
+        "axn"
+      ],
+      "flagship": [
+        "AXN"
+      ],
+      "logo": ""
+    },
+    "paramount": {
+      "name": "Paramount",
+      "aliases": [
+        "comedy central",
+        "nickelodeon",
+        "nick jr",
+        "paramount",
+        "mtv"
+      ],
+      "flagship": [
+        "Paramount Network"
+      ],
+      "logo": ""
+    },
+    "disney": {
+      "name": "Disney",
+      "aliases": [
+        "disney",
+        "national geographic",
+        "nat geo"
+      ],
+      "flagship": [
+        "Disney Channel"
+      ],
+      "logo": ""
+    },
+    "wbd": {
+      "name": "Warner Bros. Discovery",
+      "aliases": [
+        "discovery",
+        "dmax",
+        "cartoon network",
+        "boomerang",
+        "tlc"
+      ],
+      "flagship": [
+        "Discovery Channel"
+      ],
+      "logo": ""
+    },
+    "tresc": {
+      "name": "3Cat",
+      "aliases": [
+        "esport",
+        "esport3",
+        "tv3",
+        "3cat",
+        "super3"
+      ],
+      "flagship": [
+        "3Cat",
+        "TV3"
+      ],
+      "logo": ""
+    },
+    "golfchannel": {
+      "name": "Golf Channel",
+      "aliases": [
+        "golf channel",
+        "golf tv"
+      ],
+      "flagship": [
+        "Golf Channel"
       ],
       "logo": ""
     }

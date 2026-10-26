@@ -64,7 +64,9 @@ def norm_text(name: Optional[str]) -> str:
     text = "".join(c for c in unicodedata.normalize("NFD", text.lower()) if unicodedata.category(c) != "Mn")
     for src, dst in ALIASES:
         text = text.replace(src, dst)
-    return re.sub(r"[^a-z0-9]+", " ", text).strip()
+    text = re.sub(r"(\w)\+", r"\1plus", text)                    # "canal+" → canalplus (≠ "canal")
+    text = re.sub(r"\b([a-z]{3,})(\d{1,3})\b", r"\1 \2", text)   # "esport3" → esport 3, "espn2" → espn 2
+    return re.sub(r"[\W_]+", " ", text).strip()
 
 
 QUALITY = {"hd", "fhd", "uhd", "sd", "4k", "1080", "1080p", "720", "720p", "hevc", "es", "spain"}
@@ -131,9 +133,34 @@ def pick_iptv_logo(logos: Iterable[Mapping[str, Any]]) -> Optional[str]:
     return best
 
 
+# Tipo de canal (la app agrupa por tipo los canales sin marca): categoría de iptv-org → nuestra.
+CATEGORY_MAP = (
+    ("sports", "sports"), ("auto", "sports"), ("outdoor", "sports"),
+    ("kids", "kids"), ("animation", "kids"),
+    ("movies", "movies"), ("series", "movies"), ("comedy", "movies"),
+    ("documentary", "documentary"), ("science", "documentary"), ("travel", "documentary"),
+    ("cooking", "documentary"), ("lifestyle", "documentary"),
+    ("music", "music"), ("news", "news"), ("business", "news"), ("weather", "news"),
+    ("general", "general"), ("entertainment", "general"),
+)
+HOME_COUNTRIES = ("ES", "PT", "AD")
+MAJOR_COUNTRIES = ("GB", "IE", "US", "MX", "AR", "DE", "AT", "CH", "FR", "IT", "PL", "NL", "BE", "RU", "UA", "RO",
+                   "RS", "HR", "SI", "BA", "CZ", "SK", "HU", "GR", "TR", "SE", "NO", "DK", "FI", "BG", "CA", "AU", "BR")
+WIDE_CATEGORIES = {"general", "entertainment", "movies", "series", "kids", "animation", "documentary", "music", "comedy"}
+
+
+def category_of(categories: Iterable[str]) -> Optional[str]:
+    cats = {str(c).lower() for c in categories or []}
+    return next((ours for theirs, ours in CATEGORY_MAP if theirs in cats), None)
+
+
 def iptv_entries(channels: Iterable[Mapping[str, Any]], logos: Iterable[Mapping[str, Any]],
-                 brands: Brands, countries: tuple[str, ...] = ("ES",)) -> dict[str, dict]:
-    """Canales de España y de los grupos conocidos (en cualquier país), con su mejor logo."""
+                 brands: Brands, countries: tuple[str, ...] = HOME_COUNTRIES) -> dict[str, dict]:
+    """
+    Canales con logo que pueden estar en las listas: todos los de España/Portugal/Andorra, los de los grupos
+    conocidos y los de DEPORTES de cualquier país, más generalistas/cine/infantil/documentales de los países
+    principales. Si dos canales comparten nombre, gana el de España (luego Portugal, luego el resto).
+    """
     by_channel: dict[str, list] = {}
     for lg in logos:
         cid = lg.get("channel")
@@ -145,7 +172,11 @@ def iptv_entries(channels: Iterable[Mapping[str, Any]], logos: Iterable[Mapping[
             continue
         name = (ch.get("name") or "").strip()
         group = brands.group_of(name)
-        if ch.get("country") not in countries and group is None:
+        cats = {str(c).lower() for c in ch.get("categories") or []}
+        country = ch.get("country")
+        wanted = (country in countries or group is not None or cats & {"sports", "auto"}
+                  or (country in MAJOR_COUNTRIES and cats & WIDE_CATEGORIES))
+        if not wanted:
             continue
         logo = pick_iptv_logo(by_channel.get(ch.get("id"), []))
         key = channel_key(name)
@@ -153,14 +184,19 @@ def iptv_entries(channels: Iterable[Mapping[str, Any]], logos: Iterable[Mapping[
             continue
         aliases = sorted({a for a in (ch.get("alt_names") or []) if isinstance(a, str) and a.strip()})
         entry = out.get(key)
-        # Si dos canales comparten nombre (p. ej. país distinto), se queda el de España.
-        if entry and entry.get("_country") == "ES" and ch.get("country") != "ES":
+        if entry and _country_rank(entry.get("_country")) <= _country_rank(country):
             continue
         out[key] = {"name": name, "aliases": aliases, "logo": logo, "group": group, "source": "iptv-org",
-                    "_country": ch.get("country")}
+                    "_country": country}
+        if category_of(cats):
+            out[key]["category"] = category_of(cats)
     for e in out.values():
         e.pop("_country", None)
     return out
+
+
+def _country_rank(country: Optional[str]) -> int:
+    return HOME_COUNTRIES.index(country) if country in HOME_COUNTRIES else len(HOME_COUNTRIES)
 
 
 def robots_allows_path(robots_txt: str, url: str, agent: str) -> bool:
@@ -179,7 +215,7 @@ def harvest_agenda(events: Iterable[Mapping[str, Any]]) -> dict[str, dict]:
         for ch in ev.get("channels") or []:
             name, logo = (ch.get("name") or "").strip(), (ch.get("logo") or "").strip()
             if name and logo.startswith("https://") and not logo.lower().endswith(".svg"):
-                out.setdefault(channel_key(name), {"name": name, "logo": logo, "source": "futbolenlatv"})
+                out.setdefault(channel_key(name), {"name": name, "logo": logo, "source": "futbolenlatv", "category": "sports"})
     return out
 
 

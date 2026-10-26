@@ -133,7 +133,7 @@ class ImportAndLaunchTest {
         assertEquals(setOf("acestream://$ID_A", "acestream://$ID_B"), dazn.map { it.url }.toSet())
         // Y en "Canales" son UN canal lógico con dos fuentes (fallback posible).
         val groups = ChannelGrouping.group(listOf(Triple("p", "Proveedor", catalog.sections.flatMap { it.channels })))
-        assertEquals(2, groups.first { it.key == "dazn" }.variants.single { it.key == "dazn 1" }.sources.size)
+        assertEquals(2, groups.first { it.name == "DAZN 1" }.sources.size)
         // "MOVISTAR LALIGA" y "M+ LaLiga": mismo canal lógico (alias después de normalizar).
         assertEquals(2, groups.first { it.key == ChannelGrouping.key("M+ LaLiga") }.sources.size)
     }

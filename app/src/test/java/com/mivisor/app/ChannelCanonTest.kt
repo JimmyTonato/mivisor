@@ -108,4 +108,68 @@ class ChannelCanonTest {
         assertEquals("https://l/dazn.png", r.resolve("DAZN 4").best)                        // → marca, NUNCA el de DAZN 1
         assertTrue(r.resolve("DAZN 4").channelLogo != "https://l/dazn1.png")
     }
+
+    // ---------------------------------------------------------------- segunda tanda (captura de "Otros canales")
+
+    @Test fun movistarWithoutPlusCanalPlusCountriesAndGluedNumbers() {
+        assertEquals("movistar laliga", p("M LALIGA").variantKey)                 // "M+" con el + perdido
+        assertEquals("movistar deportes", p("M Deportes").variantKey)
+        assertEquals(p("M+ LaLiga").variantKey, p("M LALIGA").variantKey)
+        assertEquals("canalplus sport", p("CANAL+ Sport").variantKey)            // Canal+ ≠ Canal
+        assertTrue(p("Canal Tenis").variantKey != p("Canal+ Tenis").variantKey)
+        assertEquals("espn 2", p("ESPN 2 BE").variantKey)                         // edición belga
+        assertEquals("espn", p("ESPN BE").variantKey)
+        assertEquals("espn 2", p("ESPN2").variantKey)                             // número pegado
+        assertEquals("esport 3", p("Esport3").variantKey)
+        assertEquals("eurosport 360", p("Eurosport360").variantKey)
+        assertEquals("canal de historia", p("Canal de Historia").variantKey)      // "de" en minúscula es una palabra
+        assertEquals("старт", p("Старт").variantKey)                               // otros alfabetos no se pierden
+        assertTrue(p("Старт").variantKey != p("Футбол HD").variantKey)
+    }
+
+    @Test fun numberOnlySplitsWhenThereAreSeveral() {
+        val groups = ChannelGrouping.group(listOf(Triple("p", "P", listOf(
+            ch("Calle 13", "acestream://c13", "P"), ch("ESPN", "acestream://e0", "P"), ch("ESPN2", "acestream://e2", "P"),
+            ch("ESPN 4 BE", "acestream://e4", "P"), ch("Esport3", "acestream://s3", "P"), ch("ESPORT", "acestream://s0", "P")
+        ))))
+        val names = groups.associate { it.key to it.variants.map { v -> v.name } }
+        assertEquals(listOf("Calle 13"), names["calle 13"])                        // un solo "Calle": no se parte
+        assertEquals(3, names.getValue("espn").size)                               // ESPN, ESPN 2, ESPN 4 juntos
+        assertEquals(2, names.getValue("esport").size)
+    }
+
+    @Test fun brandsAndCategoriesForTheRest() {
+        val r = ChannelLogoResolver(LogoCatalog.EMPTY)
+        fun g(n: String) = r.resolve(n).groupKey
+        assertEquals("movistar", g("M LALIGA"))
+        assertEquals("movistar", g("LIGA DE CAMPEONES"))
+        assertEquals("canalplus", g("CANAL+ Sport"))
+        assertEquals("eurosport", g("Eurosport360"))
+        assertEquals("fox", g("FOX DEPORTES"))
+        assertEquals("polsat", g("Polsat Sport Extra"))
+        assertEquals("tnt", g("BT Sport"))
+        assertEquals("rtl", g("RTL+ SPORT EVENT"))
+        assertEquals("mediaset", g("CUATRO"))
+        assertEquals("atresmedia", g("LA SEXTA"))
+        assertEquals("amc", g("CANAL COCINA"))
+        assertEquals("tresc", g("Esport3"))
+        assertEquals("sky", g("SkySP PL"))
+        assertEquals("espn", g("ESPN 2 BE"))
+        assertNull(g("Canal Tenis"))
+        // Sin marca → por tipo.
+        fun c(n: String) = r.resolve(n).category
+        assertEquals(com.mivisor.app.data.logos.ChannelCategory.SPORTS, c("Canal Tenis"))
+        assertEquals(com.mivisor.app.data.logos.ChannelCategory.SPORTS, c("ONETORO"))
+        assertEquals(com.mivisor.app.data.logos.ChannelCategory.SPORTS, c("nSport+"))
+        assertEquals(com.mivisor.app.data.logos.ChannelCategory.SPORTS, c("Motowizja"))
+        assertEquals(com.mivisor.app.data.logos.ChannelCategory.SPORTS, c("Real Madrid TV"))
+        assertEquals(com.mivisor.app.data.logos.ChannelCategory.MOVIES, c("Calle 13"))
+        assertNull(c("Eventual"))
+        val sections = com.mivisor.app.data.logos.LogoSections.build(
+            listOf("CUATRO", "Canal Tenis", "Eventual", "ONETORO", "M LALIGA", "Calle 13"), r, { it }, { null })
+        assertEquals(listOf("mediaset", "movistar", "cat:sports", "cat:movies", null), sections.map { it.key })
+        assertEquals("Deportes", sections[2].name)
+        assertEquals(listOf("Canal Tenis", "ONETORO"), sections[2].items.map { it.first })
+        assertEquals(listOf("Eventual"), sections.last().items.map { it.first })
+    }
 }

@@ -404,10 +404,18 @@ quita el proveedor añadido detrás ("DAZN 1 Elcano"), etiquetas de lista (New L
 fragmentos de ID ("…398"), calidad, país/versión (DE, Italia, BAR) y lo que va tras "-->"; unifica Moto GP = MotoGP,
 La Liga = LaLiga, Fórmula 1 = F1, M+ = Movistar Plus+ = Movistar.
 
-- **Grupo** (Movistar, DAZN…): cabecera con el logo de la marca.
+Además: "M LaLiga"/"M Deportes" = Movistar (M+ sin el "+"), "Canal+" ≠ "Canal", códigos de país en mayúsculas o al final
+("ESPN 2 BE"), números pegados ("Esport3", "ESPN2"), y cualquier alfabeto ("Старт"). El número final solo separa variantes
+si hay varias del mismo canal ("Calle 13" sola sigue siendo "Calle 13").
+
+- **Grupo** (Movistar, DAZN, FOX, Canal+, Polsat, Atresmedia, Mediaset, AMC… ver `channel_brands.json`): cabecera con el
+  logo de la marca. Lo que no es de ninguna marca se agrupa **por tipo** (Deportes, Cine y series, Infantil,
+  Documentales y estilo de vida, Música, Noticias, Generalistas: categoría de iptv-org o palabras del nombre) y lo que no
+  se reconoce, en "Otros canales".
 - **Canal** ("DAZN LaLiga"): una tarjeta, "2 canales · 7 fuentes".
 - **Variantes** dentro ("DAZN LaLiga", "DAZN LaLiga 2"): cada una con su logo y sus fuentes; nunca se mezclan.
-  Cada fuente muestra su nombre original y su proveedor. Los enlaces no se tocan.
+  Las fuentes son **tarjetas en rejilla** (4-5 por fila en TV) con el logo del canal, el nombre original, el proveedor,
+  la calidad y la nota de la lista. Los enlaces no se tocan.
 - Logo de cada variante: el suyo → el del canal sin número → el de la marca. Nunca el de otra variante (DAZN 4 no toma
   el de DAZN 1).
 
@@ -424,7 +432,8 @@ En **Canales**, los canales salen agrupados: cabecera con el logo y el nombre de
 Los canales sin grupo van al final en "Otros canales".
 
 **Fuentes** (por prioridad): `logos.json` (manual) → futbolenlatv.es/deporte (los logos que ya trae la agenda) →
-iptv-org (descarga semanal en GitHub Actions, respetando robots.txt) → TheSportsDB (`strLogo` de los canales que la app
+iptv-org (descarga semanal en GitHub Actions, respetando robots.txt; canales de España/Portugal/Andorra, de las marcas
+conocidas, de deportes de cualquier país y generalistas/cine/infantil/documentales de los países principales, con su tipo) → TheSportsDB (`strLogo` de los canales que la app
 pide al abrir un partido).
 
 **Normalizar antes de buscar**: `🄼🄾🅅🄸🅂🅃🄰🅁 🄻🄰🄻🄸🄶🄰` → `ChannelNameNormalizer` → "Movistar LaLiga" = "M+ LaLiga" → logo.

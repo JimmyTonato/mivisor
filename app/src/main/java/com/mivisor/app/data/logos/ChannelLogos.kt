@@ -31,7 +31,9 @@ data class LogoEntry(
     val logo: String,
     val source: LogoSource,
     val group: String? = null,
-    val aliases: List<String> = emptyList()
+    val aliases: List<String> = emptyList(),
+    /** Tipo según iptv-org ("sports", "movies"…), si se conoce. */
+    val category: String? = null
 )
 
 data class LogoGroup(val key: String, val name: String, val aliases: List<String>, val logo: String? = null)
@@ -51,7 +53,7 @@ class LogoCatalog(val groups: List<LogoGroup>, val channels: List<LogoEntry>, va
             val channels = root.getAsJsonObject("channels")?.entrySet()?.mapNotNull { (_, el) ->
                 val o = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
                 val logo = o.str("logo")?.takeIf(::usable) ?: return@mapNotNull null
-                LogoEntry(o.str("name") ?: return@mapNotNull null, logo, LogoSource.of(o.str("source")), o.str("group"), o.strings("aliases"))
+                LogoEntry(o.str("name") ?: return@mapNotNull null, logo, LogoSource.of(o.str("source")), o.str("group"), o.strings("aliases"), o.str("category"))
             }.orEmpty()
             // Grupos que el catálogo no trae (versión antigua): los de serie.
             val known = groups.map { it.key }.toSet()
@@ -79,7 +81,9 @@ data class ResolvedLogo(
     val channelLogo: String?,
     val groupKey: String?,
     val groupName: String?,
-    val groupLogo: String?
+    val groupLogo: String?,
+    /** Tipo de canal, para agrupar los que no son de ninguna marca. */
+    val category: ChannelCategory? = null
 ) {
     /** Lo que se pinta en el canal: su logo o, si no tiene, el del grupo. */
     val best: String? get() = channelLogo ?: groupLogo
@@ -138,7 +142,8 @@ class ChannelLogoResolver(private val catalog: LogoCatalog, extra: List<LogoEntr
             ?: channelIndex[canon.baseKey]?.takeIf { canon.baseKey != canon.variantKey && it.logo !in numberedLogos }
         val groupKey = groupOf(name) ?: entry?.group?.takeIf { it in groupsByKey } ?: listGroup?.let { groupOf(it) }
         val group = groupsByKey[groupKey]
-        ResolvedLogo(entry?.logo, group?.key, group?.name, group?.logo?.takeIf { it !in numberedLogos } ?: flagshipLogo(group))
+        val category = ChannelCategory.of(entry?.category) ?: ChannelCategories.guess(canon.variantKey.split(' '))
+        ResolvedLogo(entry?.logo, group?.key, group?.name, group?.logo?.takeIf { it !in numberedLogos } ?: flagshipLogo(group), category)
     }
 
     /** Grupo cuyo alias es el PRINCIPIO del nombre: "DAZN LaLiga" → dazn, "M+ LaLiga" → movistar. */
@@ -159,37 +164,61 @@ class ChannelLogoResolver(private val catalog: LogoCatalog, extra: List<LogoEntr
         /** Igual que MiVisor agrupa canales (sin calidad, con alias M+ = Movistar). */
         fun channelKey(name: String): String = ChannelGrouping.key(name)
 
-        private val BRAND_ALIASES = listOf(
-            "movistar plus+" to "movistar ", "movistar plus" to "movistar ", "movistar+" to "movistar ",
-            "m+" to "movistar ", "la liga" to "laliga", "laliga+" to "laliga plus"
-        )
-
-        /** Tokens para decidir el grupo (mismas reglas que tools/agenda/channel_logos.py → norm_text). */
-        fun brandTokens(name: String): List<String> {
-            var text = Normalizer.normalize(ChannelNameNormalizer.display(name).lowercase(), Normalizer.Form.NFD)
-                .replace(Regex("\\p{Mn}+"), "")
-            BRAND_ALIASES.forEach { (from, to) -> text = text.replace(from, to) }
-            return text.replace(Regex("[^a-z0-9]+"), " ").trim().split(' ').filter { it.isNotEmpty() }
-        }
+        /**
+         * Tokens para decidir el grupo: la MISMA lectura de nombres que agrupa los canales ([ChannelCanon]):
+         * "M LALIGA" → movistar laliga · "CANAL+ Sport" → canalplus sport · "Eurosport360" → eurosport 360.
+         */
+        fun brandTokens(name: String): List<String> =
+            com.mivisor.app.data.ChannelCanon.parse(name).variantKey.split(' ').filter { it.isNotEmpty() }
     }
 }
 
 /** Grupos de serie (sin logos) por si aún no hay catálogo descargado. Deben coincidir con channel_brands.json. */
 object BuiltinGroups {
     val ALL = listOf(
-        LogoGroup("movistar", "Movistar Plus+", listOf("movistar plus+", "movistar plus", "movistar+", "movistar", "m+")),
+        LogoGroup("movistar", "Movistar Plus+", listOf("movistar plus+", "movistar plus", "movistar+", "movistar", "m+", "liga de campeones")),
         LogoGroup("dazn", "DAZN", listOf("dazn")),
         LogoGroup("eurosport", "Eurosport", listOf("eurosport")),
         LogoGroup("laliga", "LaLiga TV", listOf("laliga tv", "laliga hypermotion", "laliga+", "laliga plus", "hypermotion")),
         LogoGroup("tennischannel", "Tennis Channel", listOf("tennis channel")),
-        LogoGroup("rtve", "RTVE", listOf("teledeporte", "tdp", "rtve", "la 1", "la 2")),
+        LogoGroup("rtve", "RTVE", listOf("teledeporte", "tdp", "rtve", "la 1", "la 2", "clan", "canal 24 horas", "24h", "tve")),
         LogoGroup("gol", "GOL", listOf("gol play", "gol tv", "gol")),
         LogoGroup("bein", "beIN SPORTS", listOf("bein sports", "bein")),
-        LogoGroup("sky", "Sky Sports", listOf("sky sports", "sky sport")),
+        LogoGroup("sky", "Sky Sports", listOf("sky sports", "sky sport", "skysp", "sky sp")),
         LogoGroup("espn", "ESPN", listOf("espn")),
         LogoGroup("eleven", "Eleven Sports", listOf("eleven sports", "eleven")),
-        LogoGroup("tnt", "TNT Sports", listOf("tnt sports", "tnt sport")),
-        LogoGroup("redbull", "Red Bull TV", listOf("red bull tv", "redbull tv"))
+        LogoGroup("tnt", "TNT Sports", listOf("tnt sports", "tnt sport", "bt sport")),
+        LogoGroup("redbull", "Red Bull TV", listOf("red bull tv", "redbull tv")),
+        LogoGroup("fox", "FOX Sports", listOf("fox sports", "fox sport", "fox deportes", "fox premium", "fox")),
+        LogoGroup("canalplus", "CANAL+", listOf("canal+", "canal plus")),
+        LogoGroup("polsat", "Polsat Sport", listOf("polsat")),
+        LogoGroup("arena", "Arena Sport", listOf("arena sport")),
+        LogoGroup("sportklub", "Sport Klub", listOf("sport klub", "sportklub")),
+        LogoGroup("tvp", "TVP", listOf("tvp")),
+        LogoGroup("viasat", "Viasat", listOf("viasat")),
+        LogoGroup("setanta", "Setanta Sports", listOf("setanta")),
+        LogoGroup("ziggo", "Ziggo Sport", listOf("ziggo")),
+        LogoGroup("magenta", "MagentaSport", listOf("magenta sport", "magentasport", "magenta")),
+        LogoGroup("rtl", "RTL", listOf("rtl", "super rtl", "rtl+", "rtl plus")),
+        LogoGroup("orf", "ORF", listOf("orf")),
+        LogoGroup("ardzdf", "ARD / ZDF", listOf("zdf", "ard", "das erste")),
+        LogoGroup("prosieben", "ProSiebenSat.1", listOf("prosieben", "pro7", "sat 1", "sat1", "kabel eins", "sixx")),
+        LogoGroup("servus", "ServusTV", listOf("servus tv", "servustv")),
+        LogoGroup("match", "Match!", listOf("match")),
+        LogoGroup("premiersports", "Premier Sports", listOf("premier sports", "premier sport")),
+        LogoGroup("nba", "NBA TV", listOf("nba")),
+        LogoGroup("ufc", "UFC", listOf("ufc")),
+        LogoGroup("realmadrid", "Real Madrid TV", listOf("real madrid")),
+        LogoGroup("rfef", "RFEF", listOf("rfef", "1 federacion", "primera federacion")),
+        LogoGroup("atresmedia", "Atresmedia", listOf("antena 3", "lasexta", "la sexta", "neox", "atreseries")),
+        LogoGroup("mediaset", "Mediaset España", listOf("telecinco", "cuatro", "fdf", "energy", "divinity", "boing", "be mad", "bemad")),
+        LogoGroup("amc", "AMC Networks", listOf("amc", "canal cocina", "caza y pesca", "dark", "odisea", "canal hollywood", "xtrm", "sol musica", "decasa", "somos")),
+        LogoGroup("axn", "AXN", listOf("axn")),
+        LogoGroup("paramount", "Paramount", listOf("comedy central", "nickelodeon", "nick jr", "paramount", "mtv")),
+        LogoGroup("disney", "Disney", listOf("disney", "national geographic", "nat geo")),
+        LogoGroup("wbd", "Warner Bros. Discovery", listOf("discovery", "dmax", "cartoon network", "boomerang", "tlc")),
+        LogoGroup("tresc", "3Cat", listOf("esport", "esport3", "tv3", "3cat", "super3")),
+        LogoGroup("golfchannel", "Golf Channel", listOf("golf channel", "golf tv"))
     )
 }
 
@@ -219,7 +248,13 @@ object LogoSections {
             val first = list.first().second
             LogoSection(key, first.groupName ?: resolver.group(key)?.name ?: key!!, ResolvedLogo(null, key, first.groupName, first.groupLogo), list)
         }
-        val others = byKey[null]?.let { listOf(LogoSection(null, OTHERS, ResolvedLogo.NONE, it)) }.orEmpty()
-        return known + others
+        // Sin marca: por tipo (Deportes, Cine y series…) y lo que no se reconoce, al final en "Otros canales".
+        val noBrand = byKey[null].orEmpty()
+        val byCategory = noBrand.groupBy { it.second.category }
+        val categories = ChannelCategory.values().mapNotNull { c ->
+            byCategory[c]?.let { LogoSection("cat:${c.id}", c.label, ResolvedLogo.NONE, it) }
+        }
+        val others = byCategory[null]?.let { listOf(LogoSection(null, OTHERS, ResolvedLogo.NONE, it)) }.orEmpty()
+        return known + categories + others
     }
 }
