@@ -52,6 +52,7 @@ import java.util.regex.Pattern;
 
 public class MainActivity extends Activity {
     private static final String HOST = "127.0.0.1";
+    private static final int PREFERRED_HTTP_PORT = 16900;
     private static final long SOURCE_TIMEOUT_MS = 50000L;
     private static final Pattern HEX40 = Pattern.compile("^[0-9a-fA-F]{40}$");
     private static final int MAX_LOG_LINES = 700;
@@ -240,7 +241,9 @@ public class MainActivity extends Activity {
         engineState.setTextColor(Color.YELLOW);
         io.execute(() -> {
             try {
-                int selectedPort = findFreeLoopbackPort();
+                int selectedPort = isLoopbackPortFree(PREFERRED_HTTP_PORT)
+                        ? PREFERRED_HTTP_PORT
+                        : findFreeLoopbackPort();
                 enginePort = selectedPort;
                 engineBase = "http://" + HOST + ":" + selectedPort;
                 addAppLog("ENGINE START · perfil=" + profile + " · port=" + selectedPort);
@@ -254,6 +257,15 @@ public class MainActivity extends Activity {
                 pb.environment().put("OUTPACE_BIND", HOST + ":" + selectedPort);
                 pb.environment().put("OUTPACE_DATA_DIR", getFilesDir().getAbsolutePath() + "/outpace");
                 pb.environment().put("HOME", getFilesDir().getAbsolutePath());
+
+                // Esta app solo consume/reproduce. Aislamos listeners auxiliares para evitar
+                // colisiones con otras instancias y reducir trabajo innecesario en Android TV.
+                pb.environment().put("OUTPACE_RTMP_BIND", HOST + ":0");
+                pb.environment().put("OUTPACE_ENABLE_INBOUND", "0");
+                pb.environment().put("OUTPACE_ENABLE_SEEDING", "0");
+                pb.environment().put("OUTPACE_PEER_LISTEN", HOST + ":0");
+                pb.environment().put("OUTPACE_ENABLE_PORT_MAPPING", "0");
+                pb.environment().put("OUTPACE_PORT_MAP_BACKEND", "none");
 
                 // Resolver de Content ID: catálogo firmado primero; BEP-9 queda como fallback.
                 pb.environment().put("OUTPACE_BEP9_CONTENT_ID_FALLBACK", "1");
@@ -311,6 +323,15 @@ public class MainActivity extends Activity {
                 addAppLog("ENGINE EXCEPTION · " + shortMessage(e.toString()));
             }
         });
+    }
+
+    private boolean isLoopbackPortFree(int port) {
+        try (ServerSocket socket = new ServerSocket(port, 1, InetAddress.getByName(HOST))) {
+            socket.setReuseAddress(false);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private int findFreeLoopbackPort() throws Exception {
