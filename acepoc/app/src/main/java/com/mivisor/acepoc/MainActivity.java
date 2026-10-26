@@ -39,7 +39,7 @@ public class MainActivity extends Activity {
     private static final String HOST = "127.0.0.1";
     private static final int PORT = 16900;
     private static final String BASE = "http://" + HOST + ":" + PORT;
-    private static final long SOURCE_TIMEOUT_MS = 25000L;
+    private static final long SOURCE_TIMEOUT_MS = 35000L;
     private static final Pattern HEX40 = Pattern.compile("^[0-9a-fA-F]{40}$");
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -65,6 +65,8 @@ public class MainActivity extends Activity {
     private boolean autoSearching = false;
     private boolean sourceAccepted = false;
     private String currentId = null;
+    private String currentTarget = null;
+    private int currentStrategy = 0; // 0 = resolver Content ID; 1 = swarm directo
     private Runnable timeoutRunnable;
 
     @Override
@@ -89,8 +91,8 @@ public class MainActivity extends Activity {
 
         TextView help = text(
                 "Pega uno o varios Content ID / acestream:// (uno por línea). " +
-                "La prueba NO abre la app Ace Stream: intenta la red P2P directamente y " +
-                "se queda con la primera fuente que llegue a vídeo.",
+                "La prueba NO abre la app Ace Stream. Primero resuelve el Content ID al descriptor " +
+                "de transporte y después entra al P2P; si falla, prueba también el ID como swarm directo.",
                 14, Color.LTGRAY);
         help.setPadding(0, 0, 0, dp(8));
         root.addView(help);
@@ -170,8 +172,9 @@ public class MainActivity extends Activity {
                     autoSearching = false;
                     cancelTimeout();
                     final int idx = currentIndex;
+                    String strategy = currentStrategy == 0 ? "descriptor resuelto" : "P2P directo";
                     sourceState.setText("✓ Fuente " + (idx + 1) + " de " + sources.size() +
-                            " seleccionada · preview activa");
+                            " seleccionada · " + strategy + " · preview activa");
                     sourceState.setTextColor(Color.rgb(95, 220, 120));
                     nextButton.setEnabled(idx + 1 < sources.size());
                 }
@@ -299,27 +302,40 @@ public class MainActivity extends Activity {
         currentIndex++;
         if (currentIndex >= sources.size()) {
             currentId = null;
+            currentTarget = null;
             autoSearching = false;
             sourceAccepted = false;
             sourceState.setText("✕ Ninguna de las " + sources.size() + " fuentes llegó a vídeo.");
             sourceState.setTextColor(Color.rgb(255, 110, 110));
-            diagnostics.setText("Prueba terminada. Esto puede significar: sin peers, fuente inactiva, " +
-                    "o que este Content ID necesita una resolución de descriptor distinta.");
+            diagnostics.setText("Se probaron las dos rutas: descriptor resuelto y swarm directo.");
             return;
         }
 
-        String id = sources.get(currentIndex);
-        currentId = id;
+        currentId = sources.get(currentIndex);
+        currentStrategy = 0;
         sourceAccepted = false;
-        int gen = attemptGeneration.incrementAndGet();
+        startCurrentStrategy();
+    }
 
-        sourceState.setText("Probando fuente " + (currentIndex + 1) + " de " + sources.size() + "...");
+    private void startCurrentStrategy() {
+        if (currentId == null) return;
+
+        final String id = currentId;
+        final String target = currentStrategy == 0 ? "cid:" + id : id;
+        currentTarget = target;
+        final String strategy = currentStrategy == 0
+                ? "Resolviendo Content ID → descriptor → P2P"
+                : "Fallback: Content ID como swarm directo";
+        final int gen = attemptGeneration.incrementAndGet();
+
+        sourceState.setText("Fuente " + (currentIndex + 1) + " de " + sources.size() +
+                " · " + strategy);
         sourceState.setTextColor(Color.YELLOW);
-        diagnostics.setText("Buscando peers y esperando vídeo · ID " + masked(id));
+        diagnostics.setText(strategy + "\nID " + masked(id));
 
         MediaItem item = new MediaItem.Builder()
-                .setMediaId(id)
-                .setUri(Uri.parse(BASE + "/streams/ace/" + id + ".ts"))
+                .setMediaId(target)
+                .setUri(Uri.parse(BASE + "/streams/ace/" + target + ".ts"))
                 .build();
         player.stop();
         player.clearMediaItems();
@@ -329,7 +345,9 @@ public class MainActivity extends Activity {
 
         cancelTimeout();
         timeoutRunnable = () -> {
-            if (gen == attemptGeneration.get() && !sourceAccepted && id.equals(currentId)) {
+            if (gen == attemptGeneration.get()
+                    && !sourceAccepted
+                    && target.equals(currentTarget)) {
                 failCurrent("Tiempo agotado sin llegar a vídeo");
             }
         };
@@ -338,12 +356,24 @@ public class MainActivity extends Activity {
 
     private void failCurrent(String reason) {
         final String failedId = currentId;
-        if (failedId == null || sourceAccepted) return;
+        final String failedTarget = currentTarget;
+        if (failedId == null || failedTarget == null || sourceAccepted) return;
         cancelTimeout();
         player.stop();
-        sourceState.setText("Fuente " + (currentIndex + 1) + " falló · " + reason);
-        sourceState.setTextColor(Color.rgb(255, 160, 90));
-        stopDaemonSession(failedId);
+        stopDaemonSession(failedTarget);
+
+        if (currentStrategy == 0) {
+            sourceState.setText("Ruta con descriptor falló · " + reason +
+                    " · probando swarm directo...");
+            sourceState.setTextColor(Color.rgb(255, 160, 90));
+            currentStrategy = 1;
+            main.postDelayed(this::startCurrentStrategy, 350);
+            return;
+        }
+
+        sourceState.setText("Fuente " + (currentIndex + 1) +
+                " falló en ambas rutas · " + reason);
+        sourceState.setTextColor(Color.rgb(255, 110, 110));
 
         if (autoSearching) {
             main.postDelayed(this::tryNext, 350);
@@ -364,10 +394,11 @@ public class MainActivity extends Activity {
     private void stopCurrent(boolean clearId) {
         attemptGeneration.incrementAndGet();
         cancelTimeout();
-        String id = currentId;
+        String target = currentTarget;
         player.stop();
         player.clearMediaItems();
-        if (id != null) stopDaemonSession(id);
+        if (target != null) stopDaemonSession(target);
+        currentTarget = null;
         if (clearId) currentId = null;
     }
 
@@ -425,12 +456,12 @@ public class MainActivity extends Activity {
         main.postDelayed(new Runnable() {
             @Override
             public void run() {
-                String id = currentId;
-                if (id != null && engineReady) {
-                    io.execute(() -> fetchStatus(id));
+                String target = currentTarget;
+                if (target != null && engineReady) {
+                    io.execute(() -> fetchStatus(target));
                 } else if (engineReady && !lastEngineLog.isEmpty()) {
                     main.post(() -> {
-                        if (currentId == null) diagnostics.setText("Motor: " + shortMessage(lastEngineLog));
+                        if (currentTarget == null) diagnostics.setText("Motor: " + shortMessage(lastEngineLog));
                     });
                 }
                 main.postDelayed(this, 1000);
@@ -438,10 +469,10 @@ public class MainActivity extends Activity {
         }, 1000);
     }
 
-    private void fetchStatus(String id) {
+    private void fetchStatus(String target) {
         HttpURLConnection c = null;
         try {
-            c = (HttpURLConnection) new URL(BASE + "/streams/ace/" + id + "/status").openConnection();
+            c = (HttpURLConnection) new URL(BASE + "/streams/ace/" + target + "/status").openConnection();
             c.setConnectTimeout(700);
             c.setReadTimeout(700);
             if (c.getResponseCode() != 200) return;
@@ -454,7 +485,7 @@ public class MainActivity extends Activity {
             int peers = o.optInt("peers", 0);
             long engineBuffer = o.optLong("buffer_ms", 0);
             main.post(() -> {
-                if (!id.equals(currentId)) return;
+                if (!target.equals(currentTarget)) return;
                 long playerBuffer = Math.max(0, player.getBufferedPosition() - player.getCurrentPosition());
                 diagnostics.setText("Peers: " + peers +
                         " · buffer motor: " + engineBuffer + " ms" +
@@ -487,7 +518,7 @@ public class MainActivity extends Activity {
         autoSearching = false;
         attemptGeneration.incrementAndGet();
         cancelTimeout();
-        if (currentId != null) stopDaemonSession(currentId);
+        if (currentTarget != null) stopDaemonSession(currentTarget);
         if (player != null) player.release();
         if (engineProcess != null) engineProcess.destroy();
         io.shutdownNow();
