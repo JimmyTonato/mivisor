@@ -74,7 +74,9 @@ object EngineRouting {
 
     fun candidateOf(c: Channel, known: Quality? = null): SourceCandidate? {
         if (c.kind != ChannelKind.ACE) return null
-        val id = AceStreamLink.contentId(c.url) ?: return null
+        if (AceStreamLink.contentId(c.url) == null) return null
+        // Identidad = Content ID normalizado (minúsculas): el mismo ID escrito distinto es la misma fuente.
+        val id = AceStreamLink.normalizedId(c.url) ?: return null
         val q = known ?: ChannelGrouping.quality(c.name)
         return SourceCandidate(id, c.name, c.source, q?.rank ?: 0, q?.let(::shortLabel))
     }
@@ -90,8 +92,9 @@ object EngineRouting {
         .sortedWith(compareByDescending<IndexedValue<SourceCandidate>> { it.value.quality }.thenBy { it.index })
         .map { it.value }
 
+    /** Segunda defensa (además del registro y de la agrupación): un Content ID una sola vez por búsqueda. */
     private fun dedupe(list: List<SourceCandidate>): List<SourceCandidate> {
         val seen = HashSet<String>()
-        return list.filter { seen.add(it.contentId.lowercase()) }
+        return list.filter { seen.add(AceStreamLink.normalizedId(it.contentId) ?: it.contentId.lowercase()) }
     }
 }

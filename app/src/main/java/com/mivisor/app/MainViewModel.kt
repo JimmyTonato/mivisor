@@ -346,6 +346,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val channels = p.catalog?.sections.orEmpty().flatMap { s -> s.channels }.map { it.withProvider(p.id, p.name) }
                     Triple(p.id, p.name, channels)
                 }
+                // Registro global de fuentes: un Content ID normalizado = una fuente, la usen los canales que la usen.
+                val report = com.mivisor.app.engine.SourceRegistry.update(input).report
+                com.mivisor.app.engine.EngineDiagnostics.log(
+                    com.mivisor.app.engine.EngineDiagnostics.Cat.SOURCE,
+                    "Fuentes: ${report.references} referencias · ${report.uniqueContentIds} Content IDs únicos · ${report.unified} duplicados unificados · ${report.sharedByChannels} compartidos por varios canales"
+                )
                 ChannelGrouping.group(input) to input.flatMap { it.third }
             }
             _ui.update { it.copy(groups = groups) }

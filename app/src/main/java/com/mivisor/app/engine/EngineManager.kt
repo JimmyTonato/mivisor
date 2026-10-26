@@ -74,6 +74,27 @@ object EngineManager {
         EngineDiagnostics.update { it.copy(engineState = "detenido", port = null) }
     }
 
+    @Volatile private var healthStore: SourceHealth? = null
+
+    /** Salud de las fuentes por Content ID (una sola instancia para toda la app). */
+    @Synchronized
+    fun health(context: Context): SourceHealth = healthStore
+        ?: SourceHealth(File(context.applicationContext.filesDir, "engine/health.json")).also { healthStore = it }
+
+    /** false solo si se sabe que NO hay Internet (en la duda, true: no se culpa a la red sin pruebas). */
+    fun isOnline(context: Context): Boolean = com.mivisor.app.diagnostics.NetState.online(context) != false
+
+    /**
+     * Resolución desde cero para la segunda pasada. El motor guarda en memoria lo que ya resolvió de cada Content ID
+     * (unos minutos) y su API no permite invalidarlo, así que se reinicia NUESTRO proceso (nunca otros). Solo hay una
+     * sesión a la vez, así que no se corta nada más.
+     */
+    suspend fun restartForFreshResolution(context: Context): EngineSupervisor.State {
+        EngineDiagnostics.log(EngineDiagnostics.Cat.PROCESS, "Reinicio del motor para resolver de nuevo desde cero (segunda pasada)", important = true)
+        stop()
+        return ensureStarted(context)
+    }
+
     /** La app pasa a segundo plano: el motor se para si no vuelve en [delayMs] (30 s en low-RAM, 2 min si no). */
     fun onBackground(context: Context) {
         val delayMs = if (isLowRam(context)) 30_000L else 120_000L

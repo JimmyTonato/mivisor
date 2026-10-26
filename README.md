@@ -490,6 +490,22 @@ MiVisor reproduce los canales Ace Stream **dentro de la app**, sin la app oficia
 
 **Prioridad por resolución**: las fuentes se prueban siempre de mayor a menor resolución (4K → FHD → HD → SD → sin indicar, deducida del nombre). Dentro de la misma resolución, primero la última que funcionó. Solo una fuente elegida a mano en la lista va la primera aunque sea de menos resolución; las que fallaron hace poco van al final.
 
+**Retraso estable respecto al directo** (`LiveDelay.kt`, `LiveDelayPolicy`)
+- Objetivo (`targetLiveDelay`) = el del buffer adaptativo: ~6 s (5 s en low-RAM), sube temporalmente hasta 8–10 s si hay cortes y baja tras 3 min estable.
+- Entrega por defecto **HLS** desde el motor: segmentos de ~2 s cortados en keyframe, ventana de 8 (6 en low-RAM) y `#EXT-X-DISCONTINUITY` tras una recuperación del motor. Retraso medido = fin de la ventana publicada − posición de Media3.
+- Exceso ≤ 1 s: nada. 1–3 s: 1.06x hasta volver al objetivo y luego 1.0x. ≥ 3 s: **salto limpio** a «fin de la ventana − objetivo» (el atraso se descarta; Media3 descodifica desde el inicio del segmento, que empieza en keyframe). Se espera 2 s de reproducción estable tras cada interrupción antes de decidir, y como mucho un salto cada 10 s.
+- Capa del motor: outpace ya salta hacia delante si su cursor se aleja del borde del enjambre más que su colchón (≈ `OUTPACE_PREBUFFER_MS`, 2 s), con keyframe gate y discontinuidad. MiVisor corrige la parte del reproductor.
+- **TS continuo** (Diagnóstico → «Entrega»): alternativa si una TV da problemas con HLS. El retraso se estima (reloj − avance de la reproducción) y el salto es una reconexión a la misma sesión (el motor entrega desde su posición actual con keyframe gate).
+- Diagnóstico: objetivo, retraso actual, desviación, nº de saltos, segundos descartados, recuperaciones suaves 1.06x y piezas del motor tras el borde.
+
+**Salud y deduplicación de fuentes (Content ID)**
+- *Identidad*: `AceStreamLink.normalizedId` (quita `acestream://`, extrae `content_id=`/`id=` de una URI, recorta, minúsculas, valida 40 hex). `acestream://ABC…`, `abc…` y `acestream://abc…` son la misma fuente. El enlace guardado del canal no se modifica.
+- *Registro global* (`SourceRegistry`): un Content ID = una `AceSource`, con referencias (`ChannelRef`) a cada canal/lista que lo usa. Se reconstruye al cargar/importar listas. Dos canales con el mismo ID no se fusionan, pero comparten fuente: misma salud, mismo éxito, no se prueba dos veces en un ciclo. Dentro de un canal agrupado el mismo ID aparece una sola vez; además cada búsqueda deduplica otra vez (segunda defensa).
+- *Salud por Content ID* (`SourceHealth`, `filesDir/engine/health.json`): estado ACTIVE / SUSPECT / QUARANTINED, último éxito, último fallo y motivo, fallos confirmados, días distintos con fallo, fin de cuarentena, última resolución válida y última resolución desde cero. Un éxito real (desde cualquier canal) lo devuelve a ACTIVE y borra el historial negativo.
+- *Ciclo de reproducción* (dos pasadas y fin, sin bucles): 1) cada fuente una vez con lo que el motor ya sabe → las que fallan quedan SUSPECT; 2) si ninguna dio vídeo, se reinicia nuestro motor (su caché de resoluciones es interna y su API no permite invalidarla) y se prueba una vez cada sospechosa; 3) si tampoco → «No hay fuente disponible». Solo fallar en las dos pasadas es un **fallo confirmado**.
+- *No cuentan*: vista previa, cambio de canal/foco, salir o ir a segundo plano, cancelación, motor caído o puerto, sin Internet, o fallo general del resolvedor (ningún éxito en 30 min y ≥3 Content IDs de otros canales fallando). Como mucho un fallo confirmado por Content ID cada 20 h.
+- *Cuarentena* (`HealthPolicy`): 4 fallos confirmados en ≥3 días distintos sin éxitos entre medias → 7 días fuera de la búsqueda automática (sigue guardada y se ve en el menú de fuentes como «Desactivada temporalmente», se puede elegir a mano). Pasados los 7 días entra a prueba al final de la cola: si funciona vuelve a ACTIVE; si falla de forma confirmada, otra cuarentena. Diagnóstico del motor → «Salud de fuentes»: referencias, Content IDs únicos, duplicados unificados, compartidos por varios canales y las fuentes en cuarentena con *Reactivar*.
+
 **Limitaciones conocidas**
 - outpace no expone ni persiste el descriptor/infohash resuelto: la caché de resolución de MiVisor guarda solo el historial de éxito por fuente; la resolución la repite el motor (con fallback BEP-9).
 - Con Cloudflare WARP activo el P2P puede no funcionar (lo advierte el propio README de outpace).

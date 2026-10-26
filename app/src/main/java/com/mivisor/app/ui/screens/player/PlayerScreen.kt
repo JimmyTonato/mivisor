@@ -378,6 +378,7 @@ private fun SourceMenuRow(row: PlaybackController.SourceRow, onClick: () -> Unit
                     SourceStatus.FAILED -> "✕ " + (row.reason ?: "Falló") to Ui.Amber
                     SourceStatus.LEFT -> "Probada" to Neon.Dim
                     SourceStatus.PENDING -> "Sin probar" to Neon.Faint
+                    SourceStatus.QUARANTINED -> "Desactivada temporalmente" to Neon.Faint
                 }
                 Txt(text, NeonType.Small, color = color)
             }
@@ -397,7 +398,9 @@ internal fun playbackStatus(ui: PlaybackController.Ui): String {
 }
 
 /** Texto bajo el spinner: "Buscando una fuente con imagen… (2 de 5 · FHD)". */
-internal fun searchingLine(ui: PlaybackController.Ui): String = when (ui.phase) {
-    Phase.TRYING -> "Buscando una fuente con imagen… (${ui.sourceIndex} de ${ui.sourceCount}" + (ui.quality?.let { " · $it" } ?: "") + ")"
+internal fun searchingLine(ui: PlaybackController.Ui): String = when {
+    ui.phase == Phase.TRYING && ui.recovering && ui.sourceId == null -> "Segunda pasada: resolviendo de nuevo las fuentes…"
+    ui.phase == Phase.TRYING && ui.recovering -> "Segunda pasada: reintentando (${ui.sourceIndex} de ${ui.sourceCount}" + (ui.quality?.let { " · $it" } ?: "") + ")…"
+    ui.phase == Phase.TRYING -> "Buscando una fuente con imagen… (${ui.sourceIndex} de ${ui.sourceCount}" + (ui.quality?.let { " · $it" } ?: "") + ")"
     else -> "Preparando el motor P2P…"
 }

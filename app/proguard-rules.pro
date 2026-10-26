@@ -20,3 +20,6 @@
 
 # Motor P2P interno (v15): metadatos de fuentes que se guardan con Gson (filesDir/engine/sources.json).
 -keep class com.mivisor.app.engine.SourceMemory$ContentInfo { *; }
+# Salud de fuentes por Content ID (filesDir/engine/health.json), con Gson.
+-keep class com.mivisor.app.engine.SourceHealth$Record { *; }
+-keep enum com.mivisor.app.engine.HealthState { *; }

@@ -10,3 +10,13 @@ enum class EngineMode(val id: String, val label: String, val help: String) {
         fun of(id: String?) = values().firstOrNull { it.id == id } ?: AUTO
     }
 }
+
+/** Cómo entrega el motor interno el vídeo a Media3. */
+enum class EngineTransport(val id: String, val label: String) {
+    HLS("hls", "HLS (recomendado)"),
+    TS("ts", "TS continuo");
+
+    companion object {
+        fun of(id: String?) = values().firstOrNull { it.id == id } ?: HLS
+    }
+}

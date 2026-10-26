@@ -44,6 +44,26 @@ object AceStreamLink {
         return s.substring(PREFIX.length).substringBefore('?').removeSuffix("/")
     }
 
+    /**
+     * IDENTIDAD técnica de una fuente Ace: el mismo Content ID escrito de cualquier forma da el mismo valor.
+     * Acepta `acestream://ID`, `acestream://ID?…`, el ID solo, o una URI con `content_id=` / `id=` (p. ej. el
+     * `/ace/getstream?content_id=` de un motor). Quita basura de los extremos, pasa a minúsculas y valida 40 hex.
+     * Solo sirve para comparar/deduplicar y como clave de salud: el enlace guardado del canal NO se modifica.
+     */
+    fun normalizedId(raw: String?): String? {
+        val s = clean(raw)
+        if (s.isEmpty()) return null
+        val candidate = when {
+            s.regionMatches(0, PREFIX, 0, PREFIX.length, ignoreCase = true) ->
+                s.substring(PREFIX.length).substringBefore('?').substringBefore('#').trim('/', ' ')
+            CONTENT_ID.matches(s) -> s
+            else -> URI_ID.find(s)?.groupValues?.get(1)
+        } ?: return null
+        return candidate.takeIf { CONTENT_ID.matches(it) }?.lowercase(java.util.Locale.ROOT)
+    }
+
+    private val URI_ID = Regex("[?&](?:content_id|id)=([0-9a-fA-F]{40})(?:[&#]|$)")
+
     /** Para registros: "2a05…9f1c (40)". Nunca el Content ID completo. */
     fun masked(id: String?): String =
         if (id.isNullOrEmpty()) "—" else if (id.length <= 8) "…(${id.length})" else "${id.take(4)}…${id.takeLast(4)} (${id.length})"

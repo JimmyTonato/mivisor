@@ -135,9 +135,11 @@ dependencies {
     // Instala los perfiles de arranque de Compose también en APKs instalados a mano (sideload).
     implementation 'androidx.profileinstaller:profileinstaller:1.4.1'
     implementation 'com.google.code.gson:gson:2.11.0'
-    // Reproductor del motor interno (MPEG-TS por HTTP desde 127.0.0.1). Solo exoplayer + ui (sin HLS/DASH extra).
+    // Reproductor del motor interno (HLS o MPEG-TS por HTTP desde 127.0.0.1): exoplayer + ui + hls (sin DASH).
     implementation 'androidx.media3:media3-exoplayer:1.4.1'
     implementation 'androidx.media3:media3-ui:1.4.1'
+    // HLS en directo del motor (segmentos en keyframe): control del retraso respecto al directo con saltos limpios.
+    implementation 'androidx.media3:media3-exoplayer-hls:1.4.1'
 
     testImplementation 'junit:junit:4.13.2'
 }

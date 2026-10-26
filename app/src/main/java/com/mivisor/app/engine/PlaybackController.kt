@@ -5,6 +5,10 @@ import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -38,6 +42,12 @@ import java.net.ConnectException
  *  - Fallo temprano con causa (resolución, sin peers, motor caído…) en lugar de esperar a ciegas.
  *  - Cambio rápido de canal: el intento anterior se cancela (generación + job).
  *  - Buffer pequeño y adaptativo ([AdaptiveLoadControl]).
+ *  - Retraso respecto al directo estable ([LiveDelayController]): los cortes no se acumulan. Por defecto la entrega
+ *    es HLS (segmentos del motor cortados en keyframe): el retraso se mide con la ventana de la lista y un exceso
+ *    grande se corrige saltando a "borde − objetivo" (un segmento que empieza en keyframe; las discontinuidades
+ *    llegan marcadas). En TS continuo el retraso se estima y el salto es una reconexión (el motor entrega desde su
+ *    posición actual, cerca del borde, con keyframe gate). El propio motor también salta si su cursor se aleja del
+ *    borde del enjambre.
  *  - Vista previa (Canales): la misma sesión, SILENCIADA. Al pulsar OK sobre ese canal se [promote] (se quita el
  *    silencio y pasa a pantalla completa) sin reiniciar nada. La vista previa nunca abre Ace Stream externo.
  * Se usa siempre desde el hilo principal.
@@ -69,7 +79,9 @@ object PlaybackController {
         val sources: List<SourceRow> = emptyList(),
         /** Pistas de audio y subtítulos de la fuente actual (ajustes del reproductor). */
         val tracks: List<TrackOption> = emptyList(),
-        val paused: Boolean = false
+        val paused: Boolean = false,
+        /** Segunda pasada: resolviendo de nuevo desde cero las fuentes que fallaron. */
+        val recovering: Boolean = false
     ) {
         val active: Boolean get() = phase == Phase.STARTING_ENGINE || phase == Phase.TRYING || phase == Phase.PLAYING
     }
@@ -120,6 +132,17 @@ object PlaybackController {
     private var lastSkippedGaps = 0L
     private var preview = false
     private var explicit = false
+    private var health: SourceHealth? = null
+    private var appContext: Context? = null
+    private var resolvedReported = -1
+    private val liveDelay = LiveDelayController()
+    private val lagEstimator = LagEstimator()
+    private var transport = com.mivisor.app.player.EngineTransport.HLS
+    /** Salto en curso (seek HLS o reconexión TS): su "cargando" no es un corte de la fuente. */
+    private var resyncing = false
+    private var resyncStartedAt = 0L
+    private var lastEngineBufferMs = 0L
+    private var currentItem: MediaItem? = null
 
     private val listener = object : Player.Listener {
         override fun onRenderedFirstFrame() {
@@ -135,19 +158,31 @@ object PlaybackController {
             scope.launch(Dispatchers.IO) {
                 val status = base?.let { EngineApi.status(it, state.source.contentId) }
                 memory?.onSuccess(channelKey, state.source.contentId, status)
+                health?.onSuccess(state.source.contentId)          // beneficia a TODOS los canales con ese Content ID
             }
             _ui.value = _ui.value.copy(phase = Phase.PLAYING, message = null, failure = null, sources = rows(sel))
+            startLagEstimateIfNeeded()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             val sel = selector ?: return
             when (playbackState) {
                 Player.STATE_BUFFERING -> if (sel.state is SourceSelector.State.Playing) {
-                    bufferingSince = System.currentTimeMillis()
-                    loadControl?.policy?.onRebuffer()
-                    EngineDiagnostics.log(EngineDiagnostics.Cat.BUFFER, "Corte de buffer: objetivo ${loadControl?.policy?.targetMs} ms", important = true)
+                    liveDelay.onInterruption(android.os.SystemClock.elapsedRealtime())
+                    if (!resyncing) {
+                        bufferingSince = System.currentTimeMillis()
+                        loadControl?.policy?.onRebuffer()
+                        EngineDiagnostics.log(EngineDiagnostics.Cat.BUFFER, "Corte de buffer: objetivo ${loadControl?.policy?.targetMs} ms", important = true)
+                    }
                 }
-                Player.STATE_READY -> bufferingSince = 0
+                Player.STATE_READY -> {
+                    bufferingSince = 0
+                    if (resyncing) {
+                        resyncing = false
+                        EngineDiagnostics.log(EngineDiagnostics.Cat.BUFFER, "Salto al directo completado en ${System.currentTimeMillis() - resyncStartedAt} ms", important = true)
+                    }
+                    startLagEstimateIfNeeded()
+                }
                 Player.STATE_ENDED -> currentGeneration()?.let { fail(it, FailureKind.DROPPED, "El directo terminó") }
                 else -> Unit
             }
@@ -188,6 +223,12 @@ object PlaybackController {
         this.onExhausted = onExhausted
         this.lastCandidates = candidates
         val mem = memory ?: SourceMemory(File(app.filesDir, "engine/sources.json")).also { memory = it }
+        val h = EngineManager.health(app).also { health = it }
+        appContext = app
+        transport = com.mivisor.app.player.PlayerPreferences(app).engineTransport
+        liveDelay.reset(android.os.SystemClock.elapsedRealtime())
+        EngineDiagnostics.update { it.copy(transport = if (transport == com.mivisor.app.player.EngineTransport.HLS) "HLS" else "TS continuo",
+            liveResyncs = 0, liveDiscardedMs = 0, liveSpeedUps = 0, liveSpeedUpsDone = 0, liveDelayMs = null, liveSpeeding = false) }
         _ui.value = Ui(Phase.STARTING_ENGINE, channelName, 0, candidates.size, message = "Preparando el motor P2P…", preview = preview, channelKey = channelKey)
         EngineDiagnostics.update { it.copy(channel = channelName, sourceCount = candidates.size, sourceSwitches = 0, rebuffers = 0, firstFrameMs = null) }
         job = scope.launch {
@@ -200,14 +241,17 @@ object PlaybackController {
                 return@launch
             }
             baseUrl = base
-            val (good, failed) = withContext(Dispatchers.IO) {
-                mem.rememberedGood(channelKey) to mem.recentlyFailed(candidates.map { it.contentId })
+            val (good, availability) = withContext(Dispatchers.IO) {
+                mem.rememberedGood(channelKey) to candidates.associate { it.contentId to h.availability(it.contentId) }
             }
-            val sel = SourceSelector(candidates, good, preferred, failed, explicit)
+            val sel = SourceSelector(candidates, good, preferred, emptySet(), explicit, availability)
             selector = sel
             ensurePlayer(app)
             loadControl?.policy?.reset()
-            EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Canal \"$channelName\": ${sel.order.size} fuente(s)" + (good?.let { " · primero la última buena ${mask(it)}" } ?: ""), important = true)
+            val excluded = sel.order.size - sel.automaticCount
+            EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Canal \"$channelName\": ${sel.order.size} fuente(s)" +
+                (if (excluded > 0) " · $excluded en cuarentena (no se prueban solas)" else "") +
+                (good?.let { " · última buena ${mask(it)}" } ?: ""), important = true)
             attempt(sel.start())
         }
     }
@@ -253,7 +297,13 @@ object PlaybackController {
         if (p.playWhenReady) {
             p.pause()
         } else {
-            runCatching { p.seekToDefaultPosition() }
+            // HLS: volver a "borde − objetivo" (salto limpio). TS: el control de retraso reconecta si hace falta.
+            if (transport == com.mivisor.app.player.EngineTransport.HLS) {
+                resyncing = true
+                resyncStartedAt = System.currentTimeMillis()
+                runCatching { p.seekToDefaultPosition() }
+            }
+            liveDelay.onInterruption(android.os.SystemClock.elapsedRealtime())
             p.play()
         }
         _ui.value = _ui.value.copy(paused = !p.playWhenReady)
@@ -337,7 +387,15 @@ object PlaybackController {
         val lowRam = EngineManager.isLowRam(context)
         val lc = AdaptiveLoadControl(AdaptiveBuffer(lowRam), lowRam)
         loadControl = lc
-        return ExoPlayer.Builder(context).setLoadControl(lc).build().also {
+        // El motor puede tardar en tener el primer segmento (resolver + peers): lectura larga; conexión corta (es local).
+        val http = DefaultHttpDataSource.Factory()
+            .setConnectTimeoutMs(5_000)
+            .setReadTimeoutMs(35_000)
+            .setAllowCrossProtocolRedirects(false)
+        return ExoPlayer.Builder(context)
+            .setLoadControl(lc)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            .build().also {
             it.addListener(listener)
             it.playWhenReady = true
             player = it
@@ -358,14 +416,22 @@ object PlaybackController {
                     phase = Phase.TRYING, sourceIndex = state.index + 1, sourceCount = sel.order.size,
                     sourceLabel = state.source.provider ?: state.source.label, message = "Buscando peers y preparando vídeo…",
                     failure = null, canNext = state.index + 1 < sel.order.size, peers = 0, quality = state.source.qualityLabel,
-                    sourceId = state.source.contentId, sources = rows(sel), tracks = emptyList(), paused = false
+                    sourceId = state.source.contentId, sources = rows(sel), tracks = emptyList(), paused = false,
+                    recovering = sel.recovering
                 )
+                resolvedReported = -1
                 EngineDiagnostics.update { it.copy(sourceIndex = state.index + 1, sourceCount = sel.order.size, sourceId = mask(state.source.contentId), sourceSwitches = sel.switches) }
                 EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Probando fuente ${state.index + 1}/${sel.order.size} (${state.source.qualityLabel ?: "resolución ?"}): ${mask(state.source.contentId)}" + if (preview) " · vista previa" else "", important = true)
                 val p = player ?: return
                 p.stop()
                 p.clearMediaItems()
-                p.setMediaItem(MediaItem.Builder().setMediaId(EngineApi.key(state.source.contentId)).setUri(Uri.parse(EngineApi.streamUrl(base, state.source.contentId))).build())
+                val item = mediaItemFor(base, state.source.contentId)
+                currentItem = item
+                resyncing = false
+                lagEstimator.reset()
+                liveDelay.reset(android.os.SystemClock.elapsedRealtime(), keepStats = true)
+                p.setPlaybackSpeed(1f)
+                p.setMediaItem(item)
                 p.volume = if (preview) 0f else 1f
                 p.prepare()
                 p.play()
@@ -374,10 +440,20 @@ object PlaybackController {
             is SourceSelector.State.Exhausted -> {
                 current = null
                 monitor?.cancel()
+                if (state.recoverable && !preview) {
+                    startRecovery(sel)
+                    return
+                }
                 val kind = state.lastFailure
+                val message = when {
+                    sel.automaticCount == 0 -> "Todas las fuentes de este canal están desactivadas temporalmente (fallaron varios días). Puedes probarlas a mano en «Fuentes»."
+                    else -> "No hay fuente disponible: ninguna de las ${sel.automaticCount} llegó a vídeo" +
+                        (if (sel.recovering) " (ni tras resolverlas de nuevo)" else "") + (kind?.let { ". Último motivo: ${it.label}" } ?: "")
+                }
                 _ui.value = _ui.value.copy(phase = Phase.FAILED, failure = kind, canNext = false, sources = rows(sel), sourceId = null,
-                    message = "Ninguna de las ${sel.order.size} fuentes llegó a vídeo" + (kind?.let { ". Último motivo: ${it.label}" } ?: ""))
-                EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Sin fuentes válidas (${kind?.label ?: "—"})", important = true)
+                    recovering = false, message = message)
+                EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Fin del ciclo: sin fuente disponible (${kind?.label ?: "—"})", important = true)
+                recordConfirmedFailures(sel)
                 if (!preview) onExhausted?.invoke(kind)
             }
             else -> Unit
@@ -401,6 +477,11 @@ object PlaybackController {
                     break
                 }
                 if (status != null) {
+                    if (!sawStatus && resolvedReported != attempt.generation) {
+                        resolvedReported = attempt.generation
+                        val fresh = selector?.recovering == true
+                        withContext(Dispatchers.IO) { health?.onResolved(attempt.source.contentId, fresh) }
+                    }
                     sawStatus = true
                     maxPeers = maxOf(maxPeers, status.peers)
                     if (status.skippedGaps > lastSkippedGaps) {
@@ -431,6 +512,13 @@ object PlaybackController {
                         }
                     }
                     is SourceSelector.State.Playing -> {
+                        status?.let { lastEngineBufferMs = it.engineBufferMs }
+                        controlLiveDelay(status)
+                        if (resyncing && System.currentTimeMillis() - resyncStartedAt > STALL_MS) {
+                            resyncing = false
+                            fail(attempt.generation, FailureKind.DROPPED, "El salto al directo no volvió a dar imagen")
+                            return@launch
+                        }
                         // Atasco largo con la fuente que se veía: se considera caída y se pasa a la siguiente.
                         if (bufferingSince > 0 && System.currentTimeMillis() - bufferingSince > STALL_MS) {
                             fail(attempt.generation, FailureKind.DROPPED, "Más de ${STALL_MS / 1000} s sin datos")
@@ -450,7 +538,12 @@ object PlaybackController {
             ?: return
         monitor?.cancel()
         EngineDiagnostics.log(categoryOf(kind), "Fuente ${mask(active.contentId)} falló: ${kind.label} · $detail", important = true)
-        scope.launch(Dispatchers.IO) { memory?.onFailure(active.contentId, kind) }
+        val firstPass = !sel.recovering
+        val app = appContext
+        if (!preview && firstPass && kind in HealthPolicy.SOURCE_FAULTS) scope.launch(Dispatchers.IO) {
+            // Primera pasada sin vídeo → SUSPECT (no suma fallo). Sin Internet no se culpa a la fuente.
+            if (app == null || EngineManager.isOnline(app)) health?.onSuspect(active.contentId, kind)
+        }
         stopEngineSession(active.contentId)
         player?.stop()
         player?.clearMediaItems()
@@ -458,6 +551,66 @@ object PlaybackController {
         scope.launch {
             delay(300)                                                  // deja cerrar la sesión anterior
             if (selector === sel && sel.state === next) attempt(next)     // salvo que se haya elegido otra en el menú
+        }
+    }
+
+    /**
+     * Segunda pasada: ninguna fuente dio vídeo con lo que el motor ya sabía. Se fuerza una resolución desde cero
+     * (reinicio de nuestro motor: su caché de resoluciones es interna) y se prueba UNA vez cada fuente que falló por
+     * causa propia. Después, fin del ciclo (sin bucles).
+     */
+    private fun startRecovery(sel: SourceSelector) {
+        val app = appContext ?: return
+        val suspects = sel.suspectIds()
+        _ui.value = _ui.value.copy(phase = Phase.TRYING, recovering = true, sources = rows(sel), sourceId = null, peers = 0,
+            message = "Ninguna dio imagen. Segunda pasada: resolviendo de nuevo ${suspects.size} fuente(s) desde cero…")
+        EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Segunda pasada con ${suspects.size} fuente(s) sospechosa(s)", important = true)
+        job?.cancel()
+        job = scope.launch {
+            val engine = EngineManager.restartForFreshResolution(app)
+            if (selector !== sel) return@launch
+            val base = engine.baseUrl
+            if (base == null) {
+                // El motor no volvió: no es culpa de las fuentes, no se registra nada contra ellas.
+                _ui.value = _ui.value.copy(phase = Phase.FAILED, failure = FailureKind.ENGINE_DOWN, recovering = false,
+                    message = engine.message ?: "El motor P2P no volvió a arrancar")
+                if (!preview) onExhausted?.invoke(FailureKind.ENGINE_DOWN)
+                return@launch
+            }
+            baseUrl = base
+            withContext(Dispatchers.IO) { suspects.keys.forEach { health?.onFreshResolutionAttempt(it) } }
+            if (selector === sel) attempt(sel.startRecovery())
+        }
+    }
+
+    /**
+     * Fin de ciclo: los Content IDs que fallaron en las DOS pasadas suman un fallo confirmado (como mucho uno por
+     * ventana; ver [HealthPolicy]). No se cuenta nada si no hay Internet o si parece un fallo global del resolvedor.
+     */
+    private fun recordConfirmedFailures(sel: SourceSelector) {
+        if (preview) return
+        val confirmed = sel.confirmedFailures()
+        if (confirmed.isEmpty()) return
+        val h = health ?: return
+        val app = appContext
+        val ids = sel.order.mapNotNull { AceStreamLink.normalizedId(it.contentId) }.toSet()
+        scope.launch(Dispatchers.IO) {
+            when {
+                app != null && !EngineManager.isOnline(app) ->
+                    EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Sin Internet: no se cuenta como fallo de las fuentes", important = true)
+                h.looksLikeGlobalOutage(exclude = ids) ->
+                    EngineDiagnostics.log(EngineDiagnostics.Cat.RESOLUTION, "Parece un fallo general de resolución (otros canales también fallan): no se penaliza a estas fuentes", important = true)
+                else -> confirmed.forEach { (id, kind) ->
+                    val outcome = h.onConfirmedFailure(id, kind)
+                    val text = when (outcome) {
+                        SourceHealth.Outcome.COUNTED -> "fallo confirmado (${h.get(id)?.confirmedFailures ?: 0}/${HealthPolicy.QUARANTINE_AFTER_FAILURES})"
+                        SourceHealth.Outcome.RATE_LIMITED -> "ya tenía un fallo confirmado reciente: no suma"
+                        SourceHealth.Outcome.QUARANTINED -> "EN CUARENTENA ${HealthPolicy.QUARANTINE_DAYS} días (sigue guardada)"
+                        SourceHealth.Outcome.IGNORED -> "no se cuenta"
+                    }
+                    EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Fuente ${mask(id)}: $text", important = true)
+                }
+            }
         }
     }
 
@@ -503,6 +656,90 @@ object PlaybackController {
     }
 
     private fun mask(id: String) = AceStreamLink.masked(id)
+
+    /** MediaItem de la fuente según la entrega: HLS en directo (con objetivo de retraso) o TS continuo. */
+    private fun mediaItemFor(base: String, contentId: String): MediaItem {
+        val b = MediaItem.Builder().setMediaId(EngineApi.key(contentId))
+        return if (transport == com.mivisor.app.player.EngineTransport.HLS) {
+            val target = loadControl?.policy?.targetMs ?: 6_000L
+            b.setUri(Uri.parse(EngineApi.hlsUrl(base, contentId)))
+                .setMimeType(MimeTypes.APPLICATION_M3U8)
+                // Arranque cerca del objetivo; la velocidad la gestiona LiveDelayController (no la de Media3).
+                .setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(target).setMinPlaybackSpeed(1f).setMaxPlaybackSpeed(1f).build())
+                .build()
+        } else {
+            b.setUri(Uri.parse(EngineApi.streamUrl(base, contentId))).build()
+        }
+    }
+
+    /** TS continuo: la estimación de retraso arranca en el primer instante estable con imagen. */
+    private fun startLagEstimateIfNeeded() {
+        if (transport != com.mivisor.app.player.EngineTransport.TS || lagEstimator.started) return
+        val p = player ?: return
+        if (selector?.state !is SourceSelector.State.Playing || p.playbackState != Player.STATE_READY) return
+        val buffered = (p.bufferedPosition - p.currentPosition).coerceAtLeast(0)
+        lagEstimator.start(android.os.SystemClock.elapsedRealtime(), p.currentPosition, lastEngineBufferMs + buffered)
+    }
+
+    /** Retraso respecto al directo: medido (HLS: ventana de la lista − posición) o estimado (TS). */
+    private fun measureLiveDelay(p: ExoPlayer): Long? = if (transport == com.mivisor.app.player.EngineTransport.HLS) {
+        val duration = p.duration
+        if (p.isCurrentMediaItemLive && duration != C.TIME_UNSET && duration > 0) (duration - p.currentPosition).coerceAtLeast(0) else null
+    } else {
+        lagEstimator.estimate(android.os.SystemClock.elapsedRealtime(), p.currentPosition)
+    }
+
+    /** Cada segundo mientras se ve: mide el retraso y aplica la corrección (nada / acelerar / salto limpio). */
+    private fun controlLiveDelay(status: EngineStatus?) {
+        val p = player ?: return
+        val now = android.os.SystemClock.elapsedRealtime()
+        val target = loadControl?.policy?.targetMs ?: 6_000L
+        val playing = p.playbackState == Player.STATE_READY && p.playWhenReady && !resyncing
+        val delay = if (resyncing) null else measureLiveDelay(p)
+        when (val action = liveDelay.onTick(now, delay, target, playing)) {
+            is LiveDelayController.Action.SetSpeed -> {
+                p.setPlaybackSpeed(action.speed)
+                EngineDiagnostics.log(EngineDiagnostics.Cat.BUFFER,
+                    if (action.speed > 1f) "Retraso ${delay ?: "?"} ms (objetivo $target): recuperación suave a ${action.speed}x" else "Retraso recuperado: vuelta a 1.0x")
+            }
+            is LiveDelayController.Action.Resync -> resyncToLive(p, action, delay)
+            LiveDelayController.Action.None -> Unit
+        }
+        val st = liveDelay.stats
+        EngineDiagnostics.update {
+            it.copy(liveTargetMs = target, liveDelayMs = st.delayMs, liveDelayEstimated = transport == com.mivisor.app.player.EngineTransport.TS,
+                liveResyncs = st.resyncs, liveDiscardedMs = st.discardedMs, liveSpeedUps = st.speedUps,
+                liveSpeedUpsDone = st.speedUpsCompleted, liveSpeeding = st.speeding,
+                enginePiecesBehind = status?.piecesBehindLive ?: it.enginePiecesBehind)
+        }
+    }
+
+    /**
+     * Salto limpio al directo: se descarta el atraso y se reanuda en un punto decodificable.
+     *  - HLS: posición = fin de la ventana − objetivo. Media3 empieza a descodificar desde el inicio del segmento
+     *    (que el motor corta en keyframe), así que no hay macrobloques; no es un "seek +N" sobre un TS no seekable.
+     *  - TS continuo: nueva conexión a la misma sesión del motor (no se cierra): el motor entrega desde su posición
+     *    actual, cerca del borde, y con keyframe gate por cliente.
+     */
+    private fun resyncToLive(p: ExoPlayer, action: LiveDelayController.Action.Resync, delay: Long?) {
+        resyncing = true
+        resyncStartedAt = System.currentTimeMillis()
+        p.setPlaybackSpeed(1f)
+        EngineDiagnostics.log(EngineDiagnostics.Cat.BUFFER,
+            "Retraso ${delay ?: "?"} ms (objetivo ${action.targetDelayMs}): salto al directo, se descartan ~${action.discardMs / 1000.0} s", important = true)
+        if (transport == com.mivisor.app.player.EngineTransport.HLS) {
+            val duration = p.duration
+            p.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+            p.seekTo((duration - action.targetDelayMs).coerceAtLeast(0))
+        } else {
+            val item = currentItem ?: return
+            lagEstimator.reset()
+            p.stop()
+            p.setMediaItem(item)
+            p.prepare()
+            p.play()
+        }
+    }
 
     private fun rows(sel: SourceSelector): List<SourceRow> = sel.order.mapIndexed { i, c ->
         SourceRow(i, c.label, c.provider, c.qualityLabel, sel.statusOf(i), sel.failureOf(c.contentId)?.short)

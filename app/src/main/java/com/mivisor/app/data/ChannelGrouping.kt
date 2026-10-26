@@ -92,18 +92,20 @@ object ChannelGrouping {
     /**
      * Agrupa los canales de todos los proveedores por su nombre REAL ([ChannelCanon]): todo lo que coincide con
      * "DAZN LaLiga" va a ese canal, con sus variantes ("DAZN LaLiga 2") dentro. El orden es el de aparición.
-     * Mismo enlace en dos proveedores = una sola fuente (la del primero). Los enlaces no se tocan.
+     * El mismo Content ID (o enlace) dentro de un canal = una sola fuente (la del primero). Los enlaces no se tocan.
      */
     fun group(providers: List<Triple<String, String, List<Channel>>>): List<ChannelGroup> {
         val providerNames = providers.map { it.second }
-        val seenUrls = HashSet<String>()
         val parsed = ArrayList<Triple<Triple<String, String, Channel>, ChannelCanon.Parsed, Unit>>()
         for ((providerId, providerName, channels) in providers) {
             for (channel in channels) {
-                if (!seenUrls.add(channel.url.trim())) continue
                 parsed += Triple(Triple(providerId, providerName, channel), ChannelCanon.parse(channel.name, providerNames), Unit)
             }
         }
+        // Identidad de la fuente: Content ID normalizado (acestream://ABC…, abc…, …?content_id=abc… = la misma).
+        // Dentro de un canal agrupado cada fuente aparece UNA vez; dos canales distintos que comparten Content ID
+        // siguen siendo dos canales (no se fusionan), pero apuntan a la misma fuente (ver SourceRegistry).
+        val seenInGroup = HashMap<String, HashSet<String>>()
         // El número final solo separa variantes si de verdad hay varias del mismo canal ("DAZN 1", "DAZN 2"…).
         // "Calle 13" o "Antena 3" solos siguen siendo un canal con su nombre completo.
         val variantsPerBase = parsed.groupBy { it.second.baseKey }.mapValues { (_, list) -> list.map { it.second.variantKey }.toSet().size }
@@ -113,6 +115,7 @@ object ChannelGrouping {
             val (providerId, providerName, channel) = p
             val split = canon.number == null || (variantsPerBase[canon.baseKey] ?: 0) > 1
             val key = if (split) canon.baseKey else canon.variantKey
+            if (!seenInGroup.getOrPut(key) { HashSet() }.add(sourceIdentity(channel))) continue
             order.getOrPut(key) { ArrayList() } += ChannelSource(
                 channel, providerId, providerName, quality(channel.name), canon.variantName, canon.variantKey, canon.number.takeIf { split }
             )
@@ -126,6 +129,9 @@ object ChannelGrouping {
             )
         }
     }
+
+    /** Identidad de una fuente: el Content ID normalizado si es Ace Stream; si no, el enlace sin espacios. */
+    fun sourceIdentity(channel: Channel): String = AceStreamLink.normalizedId(channel.url)?.let { "ace:$it" } ?: channel.url.trim()
 
     /** Escritura más repetida; a igualdad, la que tiene más mayúsculas iniciales y luego la más corta. */
     fun bestDisplay(candidates: List<String>): String =

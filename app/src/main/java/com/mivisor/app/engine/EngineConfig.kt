@@ -53,7 +53,15 @@ data class EngineConfig(
             "OUTPACE_CACHE_TYPE" to "memory",
             "OUTPACE_SEED_STORE_BYTES" to limits.seedStoreBytes.toString(),
             "OUTPACE_SEED_RETENTION_SECS" to "20",
-            "OUTPACE_SEED_TTL_SECS" to "60"
+            "OUTPACE_SEED_TTL_SECS" to "60",
+            // HLS en directo (entrega por defecto a Media3): segmentos cortados en keyframe (~2 s) y una ventana
+            // corta de segmentos recientes. Permite reposicionar cerca del borde en directo con un salto limpio
+            // (el segmento empieza en keyframe) y marcar discontinuidades (#EXT-X-DISCONTINUITY).
+            "OUTPACE_HLS_SEGMENT_DURATION_MS" to HLS_SEGMENT_MS.toString(),
+            "OUTPACE_HLS_WINDOW_SEGMENTS" to limits.hlsWindow.toString(),
+            "OUTPACE_HLS_STARTUP_SEGMENTS" to "2",              // ~4 s listos al empezar: ni lento ni pegado al borde
+            "OUTPACE_HLS_STARTUP_TIMEOUT_MS" to "30000",
+            "OUTPACE_HLS_SEGMENT_PACKETS" to limits.hlsSegmentPackets.toString()
         )
     }
 
@@ -67,27 +75,37 @@ data class EngineConfig(
             if (n("OUTPACE_MAX_REASM_PIECES_AHEAD") < n("OUTPACE_MAX_PIECE_ADVANCE")) add("MAX_REASM_PIECES_AHEAD debe ser >= MAX_PIECE_ADVANCE")
             if (n("OUTPACE_SEED_STORE_BYTES") < MAX_PIECE_BYTES) add("SEED_STORE_BYTES debe admitir al menos una pieza de 1 MiB")
             if (bindPort !in 1..65535) add("puerto fuera de rango")
+            if (n("OUTPACE_HLS_STARTUP_SEGMENTS") > n("OUTPACE_HLS_WINDOW_SEGMENTS")) add("HLS_STARTUP_SEGMENTS debe ser <= HLS_WINDOW_SEGMENTS")
+            if (n("OUTPACE_HLS_STARTUP_TIMEOUT_MS") < n("OUTPACE_HLS_SEGMENT_DURATION_MS")) add("HLS_STARTUP_TIMEOUT debe ser >= HLS_SEGMENT_DURATION")
+            if (n("OUTPACE_HLS_SEGMENT_PACKETS") < 3) add("HLS_SEGMENT_PACKETS debe ser >= 3")
+            // La ventana HLS debe cubrir el retraso máximo permitido (10 s) con margen.
+            if (n("OUTPACE_HLS_WINDOW_SEGMENTS") * HLS_SEGMENT_MS < 10_000) add("la ventana HLS no cubre 10 s de retraso")
         }
     }
 
     private class Limits(
         val upstreams: Int, val parallelConnect: Int, val pieceAdvance: Int, val reasmAhead: Int,
-        val sessionBuffer: Int, val prebufferBytes: Long, val seedStoreBytes: Long
+        val sessionBuffer: Int, val prebufferBytes: Long, val seedStoreBytes: Long,
+        val hlsWindow: Int, val hlsSegmentPackets: Int
     )
 
     companion object {
         const val HOST = "127.0.0.1"
         const val PREFERRED_PORT = 16900
+        /** Duración pedida de cada segmento HLS (se corta en el siguiente keyframe pasado este tiempo). */
+        const val HLS_SEGMENT_MS = 2000L
         const val BINARY_NAME = "liboutpace.so"
         private const val MAX_PIECE_BYTES = 1L shl 20
 
         private val NORMAL = Limits(
             upstreams = 4, parallelConnect = 12, pieceAdvance = 64, reasmAhead = 128,
-            sessionBuffer = 256, prebufferBytes = 24L shl 20, seedStoreBytes = 24L shl 20
+            sessionBuffer = 256, prebufferBytes = 24L shl 20, seedStoreBytes = 24L shl 20,
+            hlsWindow = 8, hlsSegmentPackets = 32768                          // 16 s de ventana; ≤ ~6 MB por segmento
         )
         private val LOW_RAM = Limits(
             upstreams = 3, parallelConnect = 8, pieceAdvance = 32, reasmAhead = 64,
-            sessionBuffer = 128, prebufferBytes = 12L shl 20, seedStoreBytes = 12L shl 20
+            sessionBuffer = 128, prebufferBytes = 12L shl 20, seedStoreBytes = 12L shl 20,
+            hlsWindow = 6, hlsSegmentPackets = 16384                          // 12 s de ventana; ≤ ~3 MB por segmento
         )
     }
 }

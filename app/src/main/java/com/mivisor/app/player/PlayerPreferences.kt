@@ -70,6 +70,14 @@ class PlayerPreferences(context: Context) {
         get() = EngineMode.of(prefs.getString("engine_mode", null))
         set(value) = prefs.edit().putString("engine_mode", value.id).apply()
 
+    /**
+     * Entrega del motor interno a Media3: HLS (por defecto; retraso respecto al directo medido y corregido con saltos
+     * limpios) o TS continuo (alternativa si una TV da problemas con HLS; retraso estimado, salto por reconexión).
+     */
+    var engineTransport: EngineTransport
+        get() = EngineTransport.of(prefs.getString("engine_transport", null))
+        set(value) = prefs.edit().putString("engine_transport", value.id).apply()
+
     /** Diagnóstico del motor interno: guardar el log detallado (siempre con tamaño máximo). */
     var engineLogs: Boolean
         get() = prefs.getBoolean("engine_logs", false)

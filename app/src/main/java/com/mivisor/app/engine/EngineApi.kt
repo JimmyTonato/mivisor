@@ -12,6 +12,12 @@ object EngineApi {
     /** Sesión de reproducción MPEG-TS continua (la que consume Media3). */
     fun streamUrl(baseUrl: String, contentId: String): String = "$baseUrl/streams/ace/${key(contentId)}.ts"
 
+    /**
+     * La misma sesión como HLS en directo (lista de segmentos cortados en keyframe + ventana deslizante). Es la
+     * entrega por defecto: permite volver cerca del borde en directo saltando a un segmento limpio.
+     */
+    fun hlsUrl(baseUrl: String, contentId: String): String = "$baseUrl/streams/ace/${key(contentId)}.m3u8"
+
     /** Estado de la sesión; null si aún no existe (antes de resolver) o ya terminó. */
     fun status(baseUrl: String, contentId: String): EngineStatus? {
         val (code, body) = request("GET", "$baseUrl/streams/ace/${key(contentId)}/status", 800)

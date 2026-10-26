@@ -108,7 +108,8 @@ class EngineLogicTest {
         assertEquals(FailureKind.TIMEOUT, FailurePolicy.earlyFailure(30_000, sawStatus = true, maxPeersSeen = 3))
         assertEquals(FailureKind.RESOLUTION, FailurePolicy.earlyFailure(30_000, sawStatus = false, maxPeersSeen = 0))
         assertEquals(FailureKind.RESOLUTION, FailurePolicy.fromHttpStatus(422))
-        assertEquals(FailureKind.ENGINE_DOWN, FailurePolicy.fromHttpStatus(503))
+        assertEquals(FailureKind.TIMEOUT, FailurePolicy.fromHttpStatus(503))          // HLS: primer segmento no llegó a tiempo
+        assertEquals(FailureKind.ENGINE_DOWN, FailurePolicy.fromHttpStatus(500))
     }
 
     @Test fun statusParsesEngineJson() {

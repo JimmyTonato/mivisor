@@ -48,8 +48,22 @@ object EngineDiagnostics {
         val deviceRamMb: Long = 0,
         val deviceAvailMb: Long = 0,
         val appUsedMb: Long = 0,
-        val lowRam: Boolean = false
-    )
+        val lowRam: Boolean = false,
+        /** Entrega a Media3: "HLS" (control de retraso exacto) o "TS continuo" (retraso estimado). */
+        val transport: String = "—",
+        val liveTargetMs: Long = 0,
+        val liveDelayMs: Long? = null,
+        val liveDelayEstimated: Boolean = false,
+        val liveResyncs: Int = 0,
+        val liveDiscardedMs: Long = 0,
+        val liveSpeedUps: Int = 0,
+        val liveSpeedUpsDone: Int = 0,
+        val liveSpeeding: Boolean = false,
+        /** Piezas que el motor lleva de retraso respecto al borde del enjambre (él mismo salta si se aleja). */
+        val enginePiecesBehind: Long? = null
+    ) {
+        val liveDeviationMs: Long? get() = liveDelayMs?.let { it - liveTargetMs }
+    }
 
     private val lines = ArrayDeque<String>()
     @Volatile var enabled: Boolean = false
@@ -91,6 +105,8 @@ object EngineDiagnostics {
         appendLine("Canal: ${m.channel ?: "—"} · fuente ${m.sourceIndex}/${m.sourceCount} · ${m.sourceId ?: "—"}")
         appendLine("Peers: ${m.peers} · bitrate: ${"%.2f".format(Locale.US, m.bitrateBps / 1_000_000.0)} Mb/s")
         appendLine("Buffer motor: ${m.engineBufferMs} ms · buffer Media3: ${m.playerBufferMs} ms (objetivo ${m.bufferTargetMs} ms)")
+        appendLine("Directo (${m.transport}): objetivo ${m.liveTargetMs} ms · retraso ${m.liveDelayMs?.let { "$it ms" + if (m.liveDelayEstimated) " (estimado)" else "" } ?: "—"} · desviación ${m.liveDeviationMs?.let { (if (it >= 0) "+" else "") + it + " ms" } ?: "—"}")
+        appendLine("Resyncs: ${m.liveResyncs} (${m.liveDiscardedMs / 1000.0} s descartados) · recuperaciones suaves 1.06x: ${m.liveSpeedUpsDone}/${m.liveSpeedUps}" + (if (m.liveSpeeding) " (acelerando ahora)" else "") + " · motor: ${m.enginePiecesBehind?.let { "$it piezas tras el borde" } ?: "—"}")
         appendLine("Recuperaciones: ${m.recoveries} · huecos saltados: ${m.skippedGaps} · cambios de fuente: ${m.sourceSwitches} · cortes: ${m.rebuffers}")
         appendLine("Primera imagen: ${m.firstFrameMs?.let { "$it ms" } ?: "—"} · posición en directo: ${m.livePositionMs?.let { "$it ms" } ?: "—"}")
         appendLine("RAM dispositivo: ${m.deviceRamMb} MB (libre ${m.deviceAvailMb} MB) · MiVisor: ${m.appUsedMb} MB · low-RAM: ${if (m.lowRam) "sí" else "no"}")
