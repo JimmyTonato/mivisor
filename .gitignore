@@ -9,3 +9,5 @@ captures/
 .cxx/
 *.jks
 !app/debug.keystore
+# Motor P2P: lo compila la CI desde el commit fijado de outpace (no se versionan binarios).
+app/src/main/jniLibs/

@@ -1,0 +1,17 @@
+MiVisor incluye el motor P2P "outpace" como programa independiente (ejecutable liboutpace.so).
+
+  Proyecto:  outpace — https://github.com/jamezrin/outpace
+  Licencia:  GNU Affero General Public License v3.0 o posterior (AGPL-3.0-or-later)
+             Texto completo: outpace-LICENSE.txt (en esta misma carpeta de la app)
+  Versión:   commit 7d77f410c9bde453cb5f5816ab37f5e571d6e5f0
+  Código fuente correspondiente:
+             https://github.com/jamezrin/outpace/tree/7d77f410c9bde453cb5f5816ab37f5e571d6e5f0
+  Compilación: Rust 1.99.1, Android NDK 27.2.12479018 (API 23), objetivos aarch64-linux-android y
+             armv7-linux-androideabi, `cargo build --locked -p ace-engine --bin outpace --release`,
+             binario sin símbolos (llvm-strip). Script completo: .github/workflows/build.yml de MiVisor.
+  Modificaciones: ninguna. MiVisor solo lo ejecuta como proceso aparte ("outpace serve") y se comunica
+             con él por HTTP en 127.0.0.1 (no se enlaza como biblioteca).
+
+outpace se distribuye SIN NINGUNA GARANTÍA, en los términos de la AGPL-3.0-or-later.
+Si quieres el código fuente exacto y no puedes acceder al enlace, pídelo a quien te dio esta app:
+debe facilitártelo en los términos de la licencia.

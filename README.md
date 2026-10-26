@@ -462,6 +462,37 @@ Cuando el dueño de la lista la actualiza, Google y Cloudflare pueden tener en c
 tiempo: con la regla anterior MiVisor podía usar otra versión que la app antigua (mismos nombres, **otros Content IDs**).
 El Registro Ace Stream muestra "Origen de la lista" (respuestas de cada servidor, si coinciden y qué versión se usó).
 
+## Motor P2P interno (v15 · fase 1)
+
+MiVisor reproduce los canales Ace Stream **dentro de la app**, sin la app oficial de Ace Stream y sin servicios de terceros (nada de canalpeer). El motor es [outpace](https://github.com/jamezrin/outpace) (AGPL-3.0-or-later), compilado por la CI desde un commit fijado y ejecutado como **proceso aparte**; Media3 reproduce el MPEG-TS que sirve en `127.0.0.1`.
+
+**Arquitectura** (`app/src/main/java/com/mivisor/app/engine/`):
+
+| Pieza | Qué hace |
+|---|---|
+| `EngineSupervisor` | Un solo proceso (`liboutpace.so serve`) para toda la app. Puerto 127.0.0.1:16900 o, si está ocupado por otra app, uno libre. Nunca toca procesos ajenos: solo cierra un huérfano propio (pid guardado + ruta del binario en `/proc/<pid>/cmdline`). Parar = SIGTERM, espera y luego forzado. |
+| `EngineConfig` | Variables del motor: RTMP aislado en 127.0.0.1:0, **sin** inbound, seeding ni port-mapping; límites de memoria más bajos en low-RAM. |
+| `EngineManager` | Android: soporte (6.0+ y ARM64/ARMv7 con binario), low-RAM (≤1,5 GB), métricas de memoria, parada en segundo plano (30 s en low-RAM, 2 min si no). |
+| `SourceSelector` + `FailurePolicy` | Fuentes **una a una** (máximo una activa). Ganadora = la primera que pinta vídeo de verdad (`onRenderedFirstFrame`). Orden: última buena → la pulsada → resto → fallidas recientes al final. Fallo temprano por HTTP 422 (no resuelve), sin peers en 15 s o 30 s sin vídeo. |
+| `SourceMemory` | Recuerda la última fuente buena por canal (3 días) y las fallidas recientes (10 min). Local, privado. |
+| `AdaptiveBuffer` + `AdaptiveLoadControl` | Buffer pequeño: arranca con ~2,5 s, normal 6 s (5 s low-RAM), sube hasta 10 s (8 s) si hay cortes y baja solo tras 3 min estable. Tope en bytes (16/32 MB). |
+| `PlaybackController` | Un único ExoPlayer; cancela al cambiar rápido de canal; monitor cada segundo (peers, bitrate, buffers, huecos saltados = discontinuidad, atasco > 20 s). |
+| `EngineRouting` | Quién reproduce: **Automático** (interno; si ninguna fuente da vídeo, Ace Stream externo — solo tras pulsar Ver), **Interno** o **Ace Stream externo**. En Android < 6 o sin binario, Automático usa el externo. |
+| `EngineDiagnostics` | Ajustes → Reproductor → *Diagnóstico del motor*: modo, estado, puerto, canal, fuente N/M (ID enmascarado), peers, bitrate, buffers, 1.ª imagen, recuperaciones, cambios, RAM. Registro clasificado (resolución, peers, timeout, discontinuidad, Media3, proceso, puerto), **desactivado por defecto** y con tope de 800 líneas. Copiar al móvil por QR. |
+
+**Pantalla completa**: panel con canal, «Fuente 2 de 4 · proveedor · N peers», botones *Siguiente fuente*, *Reintentar*, *Abrir con Ace Stream* (si el modo lo permite) y *Volver*. Se oculta solo con vídeo; cualquier tecla lo muestra. Atrás cierra la sesión.
+
+**Fase 2 (pendiente)**: panel de vista previa en Canales (silenciado) y reutilizar esa sesión al pulsar OK.
+
+**Limitaciones conocidas**
+- outpace no expone ni persiste el descriptor/infohash resuelto: la caché de resolución de MiVisor guarda solo el historial de éxito por fuente; la resolución la repite el motor (con fallback BEP-9).
+- Con Cloudflare WARP activo el P2P puede no funcionar (lo advierte el propio README de outpace).
+- El binario no se versiona (`app/src/main/jniLibs/` está en `.gitignore`): una build local sin Rust no lo incluye y el modo Automático usará Ace Stream externo.
+
+**Licencia**: `app/src/main/assets/licenses/` incluye `NOTICE-outpace.txt` (proyecto, commit, enlace al código fuente exacto, cómo se compila) y el texto completo de la AGPL. La CI comprueba que la licencia coincide con la del commit compilado y que ambos ficheros y los dos `.so` están en el APK.
+
+**CI** (`build.yml`): NDK 27.2.12479018, Rust 1.99.1 (`aarch64-linux-android`, `armv7-linux-androideabi`), clon de outpace verificado por hash de commit, `cargo build --locked`, `llvm-strip`, copia a `jniLibs/{arm64-v8a,armeabi-v7a}/liboutpace.so`; `useLegacyPackaging` para que Android lo extraiga y se pueda ejecutar.
+
 ## Registro Ace Stream
 
 **Desactivado por defecto.** Se activa en **Ajustes → Registro de errores → "Registro Ace Stream"** cuando haya algún

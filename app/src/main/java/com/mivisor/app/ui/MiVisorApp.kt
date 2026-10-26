@@ -41,6 +41,13 @@ import com.mivisor.app.model.PlayRequest
 import com.mivisor.app.model.SourceProfile
 import com.mivisor.app.model.displayTitle
 import com.mivisor.app.player.StreamLauncher
+import com.mivisor.app.player.EngineMode
+import com.mivisor.app.engine.EngineManager
+import com.mivisor.app.engine.EngineRouting
+import com.mivisor.app.engine.ExternalEngineLauncher
+import com.mivisor.app.engine.FailureKind
+import com.mivisor.app.engine.PlaybackController
+import com.mivisor.app.ui.screens.player.PlayerScreen
 import com.mivisor.app.services.PlaybackNeeds
 import com.mivisor.app.services.RowAction
 import com.mivisor.app.ui.components.AppPickerDialog
@@ -85,6 +92,7 @@ private sealed class Route {
     object Providers : Route()
     object ApiServices : Route()
     object ErrorLog : Route()
+    object EngineDiagnostics : Route()
 }
 
 /** Entrada de la pila. [restoreKey] = elemento desde el que se abrió la siguiente pantalla (para volver a él). */
@@ -114,6 +122,7 @@ fun MiVisorApp(vm: MainViewModel) {
     val context = LocalContext.current
     val launcher = remember { StreamLauncher(context) }
     var animations by remember { mutableStateOf(launcher.preferences.animations) }
+    remember { com.mivisor.app.engine.EngineDiagnostics.enabled = launcher.preferences.engineLogs; 0 }
     val layout = rememberAppLayout()
 
     var stack by remember { mutableStateOf(listOf(Entry(Route.Tab(NavItem.HOME)))) }
@@ -123,6 +132,8 @@ fun MiVisorApp(vm: MainViewModel) {
     var sourceDialog by remember { mutableStateOf<SourceDialogState?>(null) }
     var optionsFor by remember { mutableStateOf<Channel?>(null) }
     var picker by remember { mutableStateOf<PickerState?>(null) }
+    /** Canal en el reproductor interno (pantalla completa del motor P2P de MiVisor); null = no hay. */
+    var internal by remember { mutableStateOf<PlayRequest?>(null) }
     // Registro Ace Stream: última apertura Ace pendiente de "¿se ha visto?" al volver.
     var aceLaunched by remember { mutableStateOf<Triple<com.mivisor.app.model.Channel, Long, Boolean?>?>(null) }
     var vpnVersion by remember { mutableIntStateOf(0) }
@@ -194,15 +205,49 @@ fun MiVisorApp(vm: MainViewModel) {
         }
     }
 
-    /** OK = quiero ver esto: Ace y VPN se preparan solos si hacen falta y luego se abre el mismo contenido. */
-    fun play(request: PlayRequest) {
+    fun closePlayer() {
+        PlaybackController.stop()
+        internal = null
+    }
+
+    /** Ace Stream externo (la app instalada), como siempre. Solo tras pulsar Ver/OK. */
+    fun playExternal(request: PlayRequest) {
         val needs = PlaybackNeeds(
-            // acestream:// se entrega a la app de Ace Stream, que arranca SU motor (igual que la app antigua).
-            // Solo con el "motor local (HTTP)" de Ajustes hay que tener el motor listo antes de abrir.
             ace = request.channel.kind == ChannelKind.ACE && launcher.preferences.customAceEnabled,
             vpn = launcher.preferences.vpnFor(request.channel.providerId)
         )
         quick.play(request, needs)
+    }
+
+    /** Motor interno: pantalla completa y prueba de fuentes; en Automático, si ninguna da vídeo, la app externa. */
+    fun playInternal(request: PlayRequest, mode: EngineMode) {
+        val eventSources = request.eventId?.let { id -> agenda.event(id)?.let { agenda.sourcesOf(it) } }
+        val plan = EngineRouting.plan(request.channel, library.groups, eventSources)
+        internal = request
+        vm.recordPlayback(request)
+        PlaybackController.play(context, request.eventTitle ?: request.channel.name, plan.channelKey, plan.candidates, plan.preferred) { kind ->
+            if (mode == EngineMode.AUTO && kind != FailureKind.CANCELLED && ExternalEngineLauncher.isAvailable(context)) {
+                Toast.makeText(context, "El motor interno no consiguió vídeo: se abre Ace Stream", Toast.LENGTH_LONG).show()
+                closePlayer()
+                playExternal(request)
+            }
+        }
+    }
+
+    /** OK = quiero ver esto: Ace y VPN se preparan solos si hacen falta y luego se abre el mismo contenido. */
+    fun play(request: PlayRequest) {
+        val mode = launcher.preferences.engineMode
+        if (!request.forceChooser) {
+            when (EngineRouting.route(mode, request.channel, EngineManager.isSupported(context))) {
+                EngineRouting.Route.INTERNAL -> { playInternal(request, mode); return }
+                EngineRouting.Route.UNSUPPORTED -> {
+                    toast(EngineManager.unsupportedReason(context) ?: "El motor interno no está disponible en este dispositivo")
+                    return
+                }
+                EngineRouting.Route.EXTERNAL, EngineRouting.Route.NOT_ACE -> Unit
+            }
+        }
+        playExternal(request)
     }
 
     fun playChannel(channel: Channel) = play(PlayRequest(channel))
@@ -259,7 +304,13 @@ fun MiVisorApp(vm: MainViewModel) {
                     quick.onForeground()
                     vm.refreshStale()                 // canales: solo si la copia es vieja (la caché evita descargas)
                 }
-                Lifecycle.Event.ON_STOP -> quick.onBackground()
+                Lifecycle.Event.ON_START -> EngineManager.cancelBackgroundStop()
+                Lifecycle.Event.ON_STOP -> {
+                    quick.onBackground()
+                    // Segundo plano: la reproducción interna se corta ya (no sigue descargando) y el motor, al rato.
+                    if (internal != null) { PlaybackController.release(); internal = null }
+                    EngineManager.onBackground(context)
+                }
                 else -> Unit
             }
         }
@@ -278,7 +329,17 @@ fun MiVisorApp(vm: MainViewModel) {
     val onServiceOk: (RowAction) -> Unit = { quick.onOk(it) }
 
     CompositionLocalProvider(LocalAnimations provides animations, LocalAppLayout provides layout) {
-        Box(Modifier.fillMaxSize().stadiumLights().windowInsetsPadding(WindowInsets.displayCutout)) {
+        val playing = internal
+        if (playing != null) {
+            val mode = launcher.preferences.engineMode
+            PlayerScreen(
+                onBack = ::closePlayer,
+                onRetry = { PlaybackController.retry(context) },
+                onExternal = if (mode != EngineMode.INTERNAL && ExternalEngineLauncher.isAvailable(context)) {
+                    { closePlayer(); playExternal(playing) }
+                } else null
+            )
+        } else Box(Modifier.fillMaxSize().stadiumLights().windowInsetsPadding(WindowInsets.displayCutout)) {
             val content: @Composable () -> Unit = {
                 val restoreKey = current.restoreKey
                 when (val route = current.route) {
@@ -345,6 +406,7 @@ fun MiVisorApp(vm: MainViewModel) {
                             onManageProviders = { push(Route.Providers, null) },
                             onOpenApiServices = { push(Route.ApiServices, null) },
                             onOpenErrorLog = { push(Route.ErrorLog, null) },
+                            onOpenEngineDiagnostics = { push(Route.EngineDiagnostics, null) },
                             autoFocus = contentFocus,
                             onImportRuleChanged = vm::rebuildAll
                         )
@@ -404,6 +466,7 @@ fun MiVisorApp(vm: MainViewModel) {
                     }
                     Route.ApiServices -> ServicesScreen(onBack = { pop() })
                     Route.ErrorLog -> ErrorLogScreen(onBack = { pop() })
+                    Route.EngineDiagnostics -> com.mivisor.app.ui.screens.EngineDiagnosticsScreen(onBack = { pop() })
                 }
             }
 
@@ -523,6 +586,7 @@ private fun routeName(route: Route): String = when (route) {
     Route.Providers -> "PROVIDERS"
     Route.ApiServices -> "API_SERVICES"
     Route.ErrorLog -> "ERROR_LOG"
+    Route.EngineDiagnostics -> "ENGINE_DIAGNOSTICS"
 }
 
 @Composable

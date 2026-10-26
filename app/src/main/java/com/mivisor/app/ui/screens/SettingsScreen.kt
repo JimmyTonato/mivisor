@@ -88,7 +88,8 @@ fun SettingsScreen(
     onOpenApiServices: () -> Unit,
     onOpenErrorLog: () -> Unit,
     autoFocus: Boolean,
-    onImportRuleChanged: () -> Unit = {}
+    onImportRuleChanged: () -> Unit = {},
+    onOpenEngineDiagnostics: () -> Unit = {}
 ) {
     val layout = LocalAppLayout.current
     val first = remember { FocusRequester() }
@@ -102,7 +103,7 @@ fun SettingsScreen(
                 }
             }
             Content(section, prefs, animations, onAnimationsChange, services, onServiceOk, onPreviewAce, onPreviewWarp,
-                onClearCache, onClearHistory, onManageProviders, onOpenApiServices, onOpenErrorLog, onImportRuleChanged, Modifier.weight(1f))
+                onClearCache, onClearHistory, onManageProviders, onOpenApiServices, onOpenErrorLog, onImportRuleChanged, onOpenEngineDiagnostics, Modifier.weight(1f))
         } else {
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(Modifier.width(176.dp).fillMaxHeight().padding(top = 2.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -111,7 +112,7 @@ fun SettingsScreen(
                     }
                 }
                 Content(section, prefs, animations, onAnimationsChange, services, onServiceOk, onPreviewAce, onPreviewWarp,
-                    onClearCache, onClearHistory, onManageProviders, onOpenApiServices, onOpenErrorLog, onImportRuleChanged, Modifier.weight(1f).fillMaxHeight())
+                    onClearCache, onClearHistory, onManageProviders, onOpenApiServices, onOpenErrorLog, onImportRuleChanged, onOpenEngineDiagnostics, Modifier.weight(1f).fillMaxHeight())
             }
         }
     }
@@ -153,6 +154,7 @@ private fun Content(
     onOpenApiServices: () -> Unit,
     onOpenErrorLog: () -> Unit,
     onImportRuleChanged: () -> Unit,
+    onOpenEngineDiagnostics: () -> Unit,
     modifier: Modifier
 ) {
     val context = LocalContext.current
@@ -176,6 +178,18 @@ private fun Content(
                 var aceTemplate by remember { mutableStateOf(prefs.customAceTemplate.ifBlank { BuildConfig.ACESTREAM_TEMPLATE }) }
                 var magnetEnabled by remember { mutableStateOf(prefs.customMagnetEnabled) }
                 var magnetTemplate by remember { mutableStateOf(prefs.customMagnetTemplate.ifBlank { BuildConfig.MAGNET_TEMPLATE }) }
+                var engineMode by remember { mutableStateOf(prefs.engineMode) }
+                val unsupported = remember { com.mivisor.app.engine.EngineManager.unsupportedReason(context) }
+                Heading("Motor de reproducción (Ace Stream)")
+                ChipRow(com.mivisor.app.player.EngineMode.values().map { m ->
+                    (if (m == engineMode) "● " else "") + m.label to { engineMode = m; prefs.engineMode = m }
+                })
+                Hint(engineMode.help)
+                InfoBox(
+                    "Motor" to (unsupported ?: "Motor P2P de MiVisor incluido (${android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "?"})"),
+                    "Externo" to (com.mivisor.app.engine.ExternalEngineLauncher.handlers(context).takeIf { it.isNotEmpty() }?.joinToString() ?: "Ninguna app de Ace Stream instalada")
+                )
+                SecondaryButton("Diagnóstico del motor", onOpenEngineDiagnostics, icon = R.drawable.ic_info)
                 Heading("Reproductor")
                 ToggleRow("Preguntar con qué app abrir", selector, { selector = !selector; prefs.selectorEnabled = selector },
                     description = "Si lo desactivas, Android decide la app (o usa la que tenga por defecto).")
@@ -251,6 +265,12 @@ private fun Content(
                     "Dominio" to BuildConfig.STREAM_DOMAIN,
                     "DNS" to "8.8.8.8 · 1.1.1.1 (UDP/TCP) → Google / Cloudflare DoH",
                     "Versión" to "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+                )
+                Heading("Licencias")
+                InfoBox(
+                    "Motor P2P" to "outpace · AGPL-3.0-or-later (sin modificar, proceso aparte)",
+                    "Código" to "github.com/jamezrin/outpace · commit 7d77f41",
+                    "Texto" to "Incluido en la app: assets/licenses (NOTICE y licencia completa)"
                 )
             }
         }

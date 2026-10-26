@@ -20,8 +20,12 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
+      # Motor P2P interno (outpace, AGPL-3.0-or-later): commit FIJADO; se verifica antes de compilar.
+      OUTPACE_REPO: https://github.com/jamezrin/outpace.git
+      OUTPACE_COMMIT: 7d77f410c9bde453cb5f5816ab37f5e571d6e5f0
+      NDK_VERSION: 27.2.12479018
       # Firma opcional con clave propia (ver README). Si no hay secrets, se usa app/debug.keystore.
       SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
       SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
@@ -39,6 +43,71 @@ jobs:
 
       - name: Gradle (con caché)
         uses: gradle/actions/setup-gradle@v4
+
+      - name: NDK para el motor P2P
+        shell: bash
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" >/dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Rust 1.99.1 (ARM64 + ARMv7)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Código del motor (commit fijado)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none "$OUTPACE_REPO" "$RUNNER_TEMP/outpace"
+          cd "$RUNNER_TEMP/outpace"
+          git checkout --detach "$OUTPACE_COMMIT"
+          test "$(git rev-parse HEAD)" = "$OUTPACE_COMMIT"
+          # La licencia incluida en la app debe ser la del commit compilado.
+          cmp LICENSE "$GITHUB_WORKSPACE/app/src/main/assets/licenses/outpace-LICENSE.txt"
+
+      - name: Caché de Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ runner.temp }}/outpace -> target
+
+      - name: Compilar motor P2P (ARM64 + ARMv7)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$TOOLCHAIN/aarch64-linux-android23-clang"
+          export CC_aarch64_linux_android="$TOOLCHAIN/aarch64-linux-android23-clang"
+          export CXX_aarch64_linux_android="$TOOLCHAIN/aarch64-linux-android23-clang++"
+          export AR_aarch64_linux_android="$TOOLCHAIN/llvm-ar"
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$TOOLCHAIN/armv7a-linux-androideabi23-clang"
+          export CC_armv7_linux_androideabi="$TOOLCHAIN/armv7a-linux-androideabi23-clang"
+          export CXX_armv7_linux_androideabi="$TOOLCHAIN/armv7a-linux-androideabi23-clang++"
+          export AR_armv7_linux_androideabi="$TOOLCHAIN/llvm-ar"
+          # Rust pide -lgcc en Android; los NDK modernos traen compiler-rt: alias local (sin parchear binarios).
+          SHIM="$RUNNER_TEMP/android-gcc-shim"
+          mkdir -p "$SHIM/aarch64" "$SHIM/armv7"
+          A64="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/lib/clang" -name 'libclang_rt.builtins-aarch64-android.a' | head -1)"
+          ARM="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/lib/clang" -name 'libclang_rt.builtins-arm-android.a' | head -1)"
+          test -n "$A64" && test -n "$ARM"
+          ln -sf "$A64" "$SHIM/aarch64/libgcc.a"
+          ln -sf "$ARM" "$SHIM/armv7/libgcc.a"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-L native=$SHIM/aarch64"
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_RUSTFLAGS="-L native=$SHIM/armv7"
+          cd "$RUNNER_TEMP/outpace"
+          cargo build --locked -p ace-engine --bin outpace --release --target aarch64-linux-android
+          cargo build --locked -p ace-engine --bin outpace --release --target armv7-linux-androideabi
+          J="$GITHUB_WORKSPACE/app/src/main/jniLibs"
+          mkdir -p "$J/arm64-v8a" "$J/armeabi-v7a"
+          cp target/aarch64-linux-android/release/outpace "$J/arm64-v8a/liboutpace.so"
+          cp target/armv7-linux-androideabi/release/outpace "$J/armeabi-v7a/liboutpace.so"
+          # Sin símbolos: menos espacio y menos RAM al cargar (TVs de 1 GB).
+          "$TOOLCHAIN/llvm-strip" "$J/arm64-v8a/liboutpace.so" "$J/armeabi-v7a/liboutpace.so"
+          chmod 755 "$J/arm64-v8a/liboutpace.so" "$J/armeabi-v7a/liboutpace.so"
+          file "$J/arm64-v8a/liboutpace.so" "$J/armeabi-v7a/liboutpace.so"
+          ls -l "$J/arm64-v8a/liboutpace.so" "$J/armeabi-v7a/liboutpace.so"
 
       - name: Preparar firma
         env:
@@ -63,6 +132,16 @@ jobs:
       # la MISMA clave (permiso "signature" com.mivisor.permission.CONTROL_WARP). Se comprueba la huella.
       # Huella esperada: la del certificado CN=MiVisor del cliente de prueba (se puede cambiar con la
       # variable de repositorio WARP_SIGNER_SHA256 si WARP se firma con otra clave).
+      - name: Comprobar motor P2P empaquetado
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(ls app/build/outputs/apk/release/*.apk | head -1)"
+          unzip -l "$APK" | grep "lib/arm64-v8a/liboutpace.so"
+          unzip -l "$APK" | grep "lib/armeabi-v7a/liboutpace.so"
+          unzip -l "$APK" | grep "assets/licenses/outpace-LICENSE.txt"
+          unzip -l "$APK" | grep "assets/licenses/NOTICE-outpace.txt"
+
       - name: Comprobar firma compatible con WARP
         env:
           WARP_SIGNER_SHA256: ${{ vars.WARP_SIGNER_SHA256 || 'B2:9F:F0:71:C5:03:95:D6:6F:17:CE:3A:5B:C2:42:A6:EF:C0:04:88:F6:57:F5:43:7E:51:5D:C7:24:E0:46:32' }}

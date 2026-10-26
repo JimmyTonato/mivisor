@@ -65,6 +65,16 @@ class PlayerPreferences(context: Context) {
         get() = prefs.getBoolean("diag_ace", false)
         set(value) = prefs.edit().putBoolean("diag_ace", value).apply()
 
+    /** Motor de reproducción de los canales Ace Stream: Automático (recomendado), Interno o Ace Stream externo. */
+    var engineMode: EngineMode
+        get() = EngineMode.of(prefs.getString("engine_mode", null))
+        set(value) = prefs.edit().putString("engine_mode", value.id).apply()
+
+    /** Diagnóstico del motor interno: guardar el log detallado (siempre con tamaño máximo). */
+    var engineLogs: Boolean
+        get() = prefs.getBoolean("engine_logs", false)
+        set(value) = prefs.edit().putBoolean("engine_logs", value).apply()
+
     /** Iniciar Ace Stream al abrir MiVisor. */
     var aceAutoStart: Boolean
         get() = prefs.getBoolean("svc_ace_auto", false)
@@ -117,3 +127,8 @@ enum class RememberScope(val label: String) {
     GROUP("Siempre en este grupo"),
     PROTOCOL("Siempre para este tipo de enlace")
 }
+
+/**
+ * AUTO: primero el motor interno; si tras probar las fuentes no reproduce y el usuario pulsó Ver/OK, Ace Stream
+ * externo (si hay una app instalada). INTERNAL: solo el interno. EXTERNAL: siempre Ace Stream externo.
+ */

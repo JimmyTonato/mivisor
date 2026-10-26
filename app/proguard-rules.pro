@@ -17,3 +17,6 @@
 -keep class org.acestream.engine.service.v0.** { *; }
 -keep class org.acestream.engine.ServiceClient { *; }
 -keep interface org.acestream.engine.ServiceClient$Callback { *; }
+
+# Motor P2P interno (v15): metadatos de fuentes que se guardan con Gson (filesDir/engine/sources.json).
+-keep class com.mivisor.app.engine.SourceMemory$ContentInfo { *; }
