@@ -34,6 +34,8 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
@@ -50,8 +52,6 @@ import java.util.regex.Pattern;
 
 public class MainActivity extends Activity {
     private static final String HOST = "127.0.0.1";
-    private static final int PORT = 16900;
-    private static final String BASE = "http://" + HOST + ":" + PORT;
     private static final long SOURCE_TIMEOUT_MS = 50000L;
     private static final Pattern HEX40 = Pattern.compile("^[0-9a-fA-F]{40}$");
     private static final int MAX_LOG_LINES = 700;
@@ -76,6 +76,8 @@ public class MainActivity extends Activity {
     private Process engineProcess;
     private volatile boolean engineReady = false;
     private volatile String lastEngineLog = "";
+    private volatile int enginePort = -1;
+    private volatile String engineBase = null;
     private volatile boolean logsEnabled = true;
     private volatile boolean logAutoScroll = true;
 
@@ -236,17 +238,20 @@ public class MainActivity extends Activity {
         autoButton.setEnabled(false);
         engineState.setText("Motor: arrancando núcleo P2P local...");
         engineState.setTextColor(Color.YELLOW);
-        addAppLog("ENGINE START · perfil=" + profile);
-
         io.execute(() -> {
             try {
+                int selectedPort = findFreeLoopbackPort();
+                enginePort = selectedPort;
+                engineBase = "http://" + HOST + ":" + selectedPort;
+                addAppLog("ENGINE START · perfil=" + profile + " · port=" + selectedPort);
+
                 String nativeDir = getApplicationInfo().nativeLibraryDir;
                 String binary = nativeDir + "/liboutpace.so";
 
                 ProcessBuilder pb = new ProcessBuilder(binary, "serve");
                 pb.redirectErrorStream(true);
 
-                pb.environment().put("OUTPACE_BIND", HOST + ":" + PORT);
+                pb.environment().put("OUTPACE_BIND", HOST + ":" + selectedPort);
                 pb.environment().put("OUTPACE_DATA_DIR", getFilesDir().getAbsolutePath() + "/outpace");
                 pb.environment().put("HOME", getFilesDir().getAbsolutePath());
 
@@ -284,7 +289,8 @@ public class MainActivity extends Activity {
                 main.post(() -> {
                     engineReady = ready;
                     if (ready) {
-                        engineState.setText("Motor: ✓ preparado · perfil " + profileLabel(profile));
+                        engineState.setText("Motor: ✓ preparado · perfil " + profileLabel(profile) +
+                                " · puerto " + enginePort);
                         engineState.setTextColor(Color.rgb(95, 220, 120));
                         autoButton.setEnabled(true);
                         addAppLog("ENGINE READY");
@@ -305,6 +311,13 @@ public class MainActivity extends Activity {
                 addAppLog("ENGINE EXCEPTION · " + shortMessage(e.toString()));
             }
         });
+    }
+
+    private int findFreeLoopbackPort() throws Exception {
+        try (ServerSocket socket = new ServerSocket(0, 1, InetAddress.getByName(HOST))) {
+            socket.setReuseAddress(false);
+            return socket.getLocalPort();
+        }
     }
 
     private void applyProfileEnvironment(ProcessBuilder pb, String selected) {
@@ -338,9 +351,11 @@ public class MainActivity extends Activity {
     }
 
     private boolean healthCheck() {
+        String base = engineBase;
+        if (base == null) return false;
         HttpURLConnection c = null;
         try {
-            c = (HttpURLConnection) new URL(BASE + "/healthz").openConnection();
+            c = (HttpURLConnection) new URL(base + "/healthz").openConnection();
             c.setConnectTimeout(600);
             c.setReadTimeout(600);
             return c.getResponseCode() == 200;
@@ -415,7 +430,7 @@ public class MainActivity extends Activity {
 
         MediaItem item = new MediaItem.Builder()
                 .setMediaId(currentTarget)
-                .setUri(Uri.parse(BASE + "/streams/ace/" + currentTarget + ".ts"))
+                .setUri(Uri.parse(engineBase + "/streams/ace/" + currentTarget + ".ts"))
                 .build();
         player.stop();
         player.clearMediaItems();
@@ -478,7 +493,7 @@ public class MainActivity extends Activity {
         io.execute(() -> {
             HttpURLConnection c = null;
             try {
-                c = (HttpURLConnection) new URL(BASE + "/streams/ace/" + target).openConnection();
+                c = (HttpURLConnection) new URL(engineBase + "/streams/ace/" + target).openConnection();
                 c.setRequestMethod("DELETE");
                 c.setConnectTimeout(1000);
                 c.setReadTimeout(1000);
@@ -498,6 +513,9 @@ public class MainActivity extends Activity {
             }
             engineProcess = null;
         }
+        engineReady = false;
+        engineBase = null;
+        enginePort = -1;
     }
 
     private void restartEngineForProfile(String newProfile) {
@@ -569,7 +587,7 @@ public class MainActivity extends Activity {
     private void fetchStatus(String target) {
         HttpURLConnection c = null;
         try {
-            c = (HttpURLConnection) new URL(BASE + "/streams/ace/" + target + "/status").openConnection();
+            c = (HttpURLConnection) new URL(engineBase + "/streams/ace/" + target + "/status").openConnection();
             c.setConnectTimeout(800);
             c.setReadTimeout(800);
             if (c.getResponseCode() != 200) return;
