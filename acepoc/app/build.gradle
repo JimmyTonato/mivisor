@@ -7,11 +7,11 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.mivisor.acepoc"
+        applicationId "com.mivisor.acepoc.v2"
         minSdk 23
         targetSdk 35
-        versionCode 1
-        versionName "0.1-test"
+        versionCode 2
+        versionName "0.2-test"
     }
 
     buildTypes {
