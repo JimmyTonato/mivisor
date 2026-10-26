@@ -48,7 +48,7 @@ class AdaptiveLoadControl(val policy: AdaptiveBuffer, lowRam: Boolean) : LoadCon
         mediaPeriodId: MediaSource.MediaPeriodId,
         renderers: Array<out Renderer>,
         trackGroups: TrackGroupArray,
-        trackSelections: Array<out ExoTrackSelection?>
+        trackSelections: Array<out ExoTrackSelection>
     ) = delegate.onTracksSelected(playerId, timeline, mediaPeriodId, renderers, trackGroups, trackSelections)
 
     override fun onStopped(playerId: PlayerId) = delegate.onStopped(playerId)
