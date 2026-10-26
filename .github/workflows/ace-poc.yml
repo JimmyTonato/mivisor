@@ -67,6 +67,20 @@ jobs:
           export CXX_armv7_linux_androideabi="$TOOLCHAIN/armv7a-linux-androideabi23-clang++"
           export AR_armv7_linux_androideabi="$TOOLCHAIN/llvm-ar"
 
+          # Rust 1.99 still requests -lgcc for these Android targets, while modern NDKs
+          # ship compiler-rt builtins instead. Provide a local libgcc.a alias to the correct
+          # architecture-specific builtins archive; no binary patching involved.
+          SHIM="$RUNNER_TEMP/android-gcc-shim"
+          mkdir -p "$SHIM/aarch64" "$SHIM/armv7"
+          A64_BUILTINS="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/lib/clang" -name 'libclang_rt.builtins-aarch64-android.a' | head -1)"
+          ARM_BUILTINS="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/lib/clang" -name 'libclang_rt.builtins-arm-android.a' | head -1)"
+          test -n "$A64_BUILTINS"
+          test -n "$ARM_BUILTINS"
+          ln -sf "$A64_BUILTINS" "$SHIM/aarch64/libgcc.a"
+          ln -sf "$ARM_BUILTINS" "$SHIM/armv7/libgcc.a"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-L native=$SHIM/aarch64"
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_RUSTFLAGS="-L native=$SHIM/armv7"
+
           cd "$RUNNER_TEMP/outpace"
           cargo build -p ace-engine --bin outpace --release --target aarch64-linux-android
           cargo build -p ace-engine --bin outpace --release --target armv7-linux-androideabi
