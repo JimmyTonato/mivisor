@@ -16,16 +16,19 @@ data class SourceCandidate(
 )
 
 /** Por qué una fuente no llegó a vídeo. Cada tipo se ve tal cual en el diagnóstico. */
-enum class FailureKind(val label: String) {
-    RESOLUTION("No se pudo resolver el Content ID (catálogo/descriptor)"),
-    NO_PEERS("Sin peers: nadie está emitiendo esa fuente ahora"),
-    TIMEOUT("Tiempo agotado sin llegar a vídeo"),
-    PLAYER("Error del reproductor (Media3)"),
-    DROPPED("La fuente se cayó durante la reproducción"),
-    ENGINE_DOWN("El proceso del motor P2P no responde"),
-    PORT("Conflicto de puerto local"),
-    CANCELLED("Cancelada")
+enum class FailureKind(val label: String, val short: String) {
+    RESOLUTION("No se pudo resolver el Content ID (catálogo/descriptor)", "No se encuentra"),
+    NO_PEERS("Sin peers: nadie está emitiendo esa fuente ahora", "Sin peers"),
+    TIMEOUT("Tiempo agotado sin llegar a vídeo", "Sin imagen a tiempo"),
+    PLAYER("Error del reproductor (Media3)", "Error de vídeo"),
+    DROPPED("La fuente se cayó durante la reproducción", "Se cortó"),
+    ENGINE_DOWN("El proceso del motor P2P no responde", "Motor sin respuesta"),
+    PORT("Conflicto de puerto local", "Puerto ocupado"),
+    CANCELLED("Cambiada a mano", "Cambiada a mano")
 }
+
+/** Cómo va cada fuente en el menú de fuentes del reproductor. */
+enum class SourceStatus { PENDING, TRYING, PLAYING, FAILED, LEFT }
 
 /**
  * Prueba las fuentes de UN canal de una en una (nunca varias a la vez). Lógica pura, sin Android.
@@ -107,6 +110,41 @@ class SourceSelector(
     }
 
     fun failureOf(contentId: String): FailureKind? = failures[contentId]
+
+    /** Índice de la fuente activa (probándose o viéndose), o null. */
+    val currentIndex: Int? get() = when (val s = state) {
+        is State.Trying -> s.index
+        is State.Playing -> s.index
+        else -> null
+    }
+
+    /** Estado de la fuente [index] para el menú: pendiente, probando, viéndose, falló o se dejó a mano. */
+    fun statusOf(index: Int): SourceStatus {
+        val s = state
+        if (s is State.Trying && s.index == index) return SourceStatus.TRYING
+        if (s is State.Playing && s.index == index) return SourceStatus.PLAYING
+        return when (failures[order[index].contentId]) {
+            null -> SourceStatus.PENDING
+            FailureKind.CANCELLED -> SourceStatus.LEFT
+            else -> SourceStatus.FAILED
+        }
+    }
+
+    /**
+     * El usuario elige una fuente concreta en el menú (cualquiera: siguiente, anterior o una que ya falló, para
+     * reintentarla). La activa se deja como "cambiada a mano". Si esa no da imagen, se sigue con las no probadas.
+     */
+    fun choose(index: Int): State {
+        require(index in order.indices)
+        val s = state
+        val active = currentIndex
+        if (active == index) return s
+        if (active != null) failures[order[active].contentId] = FailureKind.CANCELLED
+        failures.remove(order[index].contentId)
+        tried += index
+        state = State.Trying(index, order[index], ++generation)
+        return state
+    }
 
     private fun next(lastFailure: FailureKind?): State {
         val index = order.indices.firstOrNull { it !in tried }

@@ -80,7 +80,7 @@ fun PreviewPanel(
                     },
                     onRelease = { it.player = null },
                     update = { v ->
-                        ui.phase
+                        v.keepScreenOn = ui.active                     // la TV no se atenúa con la vista previa en marcha
                         if (v.player !== PlaybackController.player) v.player = PlaybackController.player
                     },
                     modifier = Modifier.fillMaxSize()

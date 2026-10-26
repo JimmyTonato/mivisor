@@ -90,4 +90,27 @@ class EngineRoutingTest {
         // Misma clave que al elegir una fuente de esa variante: la sesión de la vista previa se reutiliza.
         assertEquals(plan.channelKey, EngineRouting.plan(sd, groups).channelKey)
     }
+
+    @Test fun sourcesMenuCanGoToAnyIncludingPreviousAndFailed() {
+        val c = ('a'..'d').map { com.mivisor.app.engine.SourceCandidate(id(it), "S$it") }
+        val sel = com.mivisor.app.engine.SourceSelector(c)
+        val s1 = sel.start() as com.mivisor.app.engine.SourceSelector.State.Trying
+        val s2 = sel.onFailure(s1.generation, com.mivisor.app.engine.FailureKind.NO_PEERS) as com.mivisor.app.engine.SourceSelector.State.Trying
+        sel.onVideo(s2.generation)
+        assertEquals(com.mivisor.app.engine.SourceStatus.FAILED, sel.statusOf(0))
+        assertEquals(com.mivisor.app.engine.SourceStatus.PLAYING, sel.statusOf(1))
+        assertEquals(com.mivisor.app.engine.SourceStatus.PENDING, sel.statusOf(3))
+        // Saltar a la 4.ª: la que se veía queda "cambiada a mano".
+        val s4 = sel.choose(3) as com.mivisor.app.engine.SourceSelector.State.Trying
+        assertEquals(3, s4.index)
+        assertEquals(com.mivisor.app.engine.SourceStatus.LEFT, sel.statusOf(1))
+        // Volver a la anterior que falló (reintento): deja de constar como fallida.
+        val back = sel.choose(0) as com.mivisor.app.engine.SourceSelector.State.Trying
+        assertEquals(0, back.index)
+        assertEquals(com.mivisor.app.engine.SourceStatus.TRYING, sel.statusOf(0))
+        // Si falla, sigue con la única no probada (la 3.ª), no con una ya vista.
+        val next = sel.onFailure(back.generation, com.mivisor.app.engine.FailureKind.TIMEOUT) as com.mivisor.app.engine.SourceSelector.State.Trying
+        assertEquals(2, next.index)
+        assertEquals(sel.choose(2), sel.state)                              // elegir la activa no reinicia nada
+    }
 }

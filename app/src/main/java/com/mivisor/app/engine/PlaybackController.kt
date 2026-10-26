@@ -3,7 +3,11 @@ package com.mivisor.app.engine
 import android.content.Context
 import android.net.Uri
 import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -60,10 +64,39 @@ object PlaybackController {
         /** Resolución de la fuente actual ("FHD"), si se conoce. */
         val quality: String? = null,
         /** Content ID de la fuente actual: solo para comparar en memoria; nunca se muestra ni se registra. */
-        val sourceId: String? = null
+        val sourceId: String? = null,
+        /** Todas las fuentes del canal con su estado, para el menú de fuentes. */
+        val sources: List<SourceRow> = emptyList(),
+        /** Pistas de audio y subtítulos de la fuente actual (ajustes del reproductor). */
+        val tracks: List<TrackOption> = emptyList(),
+        val paused: Boolean = false
     ) {
         val active: Boolean get() = phase == Phase.STARTING_ENGINE || phase == Phase.TRYING || phase == Phase.PLAYING
     }
+
+    /** Una fila del menú de fuentes ("2 · FHD · ProveedorX · Sin peers"). Sin Content IDs. */
+    data class SourceRow(
+        val index: Int,
+        val label: String,
+        val provider: String?,
+        val quality: String?,
+        val status: SourceStatus,
+        val reason: String?
+    )
+
+    /** Una pista elegible: audio ([C.TRACK_TYPE_AUDIO]) o subtítulos ([C.TRACK_TYPE_TEXT]). */
+    data class TrackOption(val type: Int, val group: Int, val track: Int, val label: String, val selected: Boolean)
+
+    /** Cómo se ajusta la imagen a la pantalla (se recuerda mientras la app está abierta). */
+    enum class Fit(val label: String, val mode: Int) {
+        FIT("Ajustar", AspectRatioFrameLayout.RESIZE_MODE_FIT),
+        ZOOM("Rellenar (recorta)", AspectRatioFrameLayout.RESIZE_MODE_ZOOM),
+        FILL("Estirar", AspectRatioFrameLayout.RESIZE_MODE_FILL)
+    }
+
+    private val _fit = MutableStateFlow(Fit.FIT)
+    val fit: StateFlow<Fit> = _fit.asStateFlow()
+    fun setFit(f: Fit) { _fit.value = f }
 
     private val _ui = MutableStateFlow(Ui())
     val ui: StateFlow<Ui> = _ui.asStateFlow()
@@ -103,7 +136,7 @@ object PlaybackController {
                 val status = base?.let { EngineApi.status(it, state.source.contentId) }
                 memory?.onSuccess(channelKey, state.source.contentId, status)
             }
-            _ui.value = _ui.value.copy(phase = Phase.PLAYING, message = null, failure = null)
+            _ui.value = _ui.value.copy(phase = Phase.PLAYING, message = null, failure = null, sources = rows(sel))
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -118,6 +151,15 @@ object PlaybackController {
                 Player.STATE_ENDED -> currentGeneration()?.let { fail(it, FailureKind.DROPPED, "El directo terminó") }
                 else -> Unit
             }
+        }
+
+        override fun onTracksChanged(tracks: Tracks) {
+            _ui.value = _ui.value.copy(tracks = trackOptions(tracks))
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            val p = player ?: return
+            _ui.value = _ui.value.copy(paused = !isPlaying && !p.playWhenReady)
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -189,6 +231,71 @@ object PlaybackController {
         EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Vista previa → pantalla completa (misma sesión)", important = true)
     }
 
+    /**
+     * Menú de fuentes: ver otra fuente concreta (la siguiente, una anterior o reintentar una que falló). Se cierra la
+     * sesión de la actual en el motor antes de abrir la elegida: nunca dos a la vez.
+     */
+    fun selectSource(index: Int) {
+        val sel = selector ?: return
+        if (index !in sel.order.indices || sel.currentIndex == index) return
+        val old = sel.currentIndex?.let { sel.order[it] }
+        monitor?.cancel()
+        stopEngineSession(old?.contentId)
+        player?.stop()
+        player?.clearMediaItems()
+        EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Fuente elegida en el menú: ${index + 1}/${sel.order.size}", important = true)
+        attempt(sel.choose(index))
+    }
+
+    /** Pausa / reanuda. Al reanudar se vuelve al directo (lo más reciente que tenga el motor). */
+    fun togglePause() {
+        val p = player ?: return
+        if (p.playWhenReady) {
+            p.pause()
+        } else {
+            runCatching { p.seekToDefaultPosition() }
+            p.play()
+        }
+        _ui.value = _ui.value.copy(paused = !p.playWhenReady)
+    }
+
+    /** Elige una pista de audio o de subtítulos. */
+    fun selectTrack(option: TrackOption) {
+        val p = player ?: return
+        val group = p.currentTracks.groups.getOrNull(option.group) ?: return
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(option.type, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, option.track))
+            .build()
+    }
+
+    /** Subtítulos desactivados. */
+    fun disableSubtitles() {
+        val p = player ?: return
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+    }
+
+    private fun trackOptions(tracks: Tracks): List<TrackOption> {
+        val out = ArrayList<TrackOption>()
+        tracks.groups.forEachIndexed { gi, g ->
+            if (g.type != C.TRACK_TYPE_AUDIO && g.type != C.TRACK_TYPE_TEXT) return@forEachIndexed
+            for (i in 0 until g.length) {
+                if (!g.isTrackSupported(i)) continue
+                val f = g.getTrackFormat(i)
+                val number = out.count { it.type == g.type } + 1
+                val lang = f.language?.takeIf { it.isNotBlank() && it != "und" }?.let { code ->
+                    runCatching { java.util.Locale(code).getDisplayLanguage(java.util.Locale("es")) }.getOrNull()?.takeIf { it.isNotBlank() } ?: code
+                }
+                val extra = if (g.type == C.TRACK_TYPE_AUDIO && f.channelCount > 2) " · ${f.channelCount} canales" else ""
+                val name = listOfNotNull(f.label?.takeIf { it.isNotBlank() }, lang).distinct().joinToString(" · ").ifBlank {
+                    if (g.type == C.TRACK_TYPE_AUDIO) "Audio $number" else "Subtítulos $number"
+                }
+                out += TrackOption(g.type, gi, i, name + extra, g.isTrackSelected(i))
+            }
+        }
+        return out
+    }
+
     /** Opción avanzada: pasar a la siguiente fuente aunque la actual funcione. */
     fun nextSource() {
         val sel = selector ?: return
@@ -251,7 +358,7 @@ object PlaybackController {
                     phase = Phase.TRYING, sourceIndex = state.index + 1, sourceCount = sel.order.size,
                     sourceLabel = state.source.provider ?: state.source.label, message = "Buscando peers y preparando vídeo…",
                     failure = null, canNext = state.index + 1 < sel.order.size, peers = 0, quality = state.source.qualityLabel,
-                    sourceId = state.source.contentId
+                    sourceId = state.source.contentId, sources = rows(sel), tracks = emptyList(), paused = false
                 )
                 EngineDiagnostics.update { it.copy(sourceIndex = state.index + 1, sourceCount = sel.order.size, sourceId = mask(state.source.contentId), sourceSwitches = sel.switches) }
                 EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Probando fuente ${state.index + 1}/${sel.order.size} (${state.source.qualityLabel ?: "resolución ?"}): ${mask(state.source.contentId)}" + if (preview) " · vista previa" else "", important = true)
@@ -268,7 +375,7 @@ object PlaybackController {
                 current = null
                 monitor?.cancel()
                 val kind = state.lastFailure
-                _ui.value = _ui.value.copy(phase = Phase.FAILED, failure = kind, canNext = false,
+                _ui.value = _ui.value.copy(phase = Phase.FAILED, failure = kind, canNext = false, sources = rows(sel), sourceId = null,
                     message = "Ninguna de las ${sel.order.size} fuentes llegó a vídeo" + (kind?.let { ". Último motivo: ${it.label}" } ?: ""))
                 EngineDiagnostics.log(EngineDiagnostics.Cat.SOURCE, "Sin fuentes válidas (${kind?.label ?: "—"})", important = true)
                 if (!preview) onExhausted?.invoke(kind)
@@ -350,7 +457,7 @@ object PlaybackController {
         val next = sel.onFailure(gen, kind)
         scope.launch {
             delay(300)                                                  // deja cerrar la sesión anterior
-            if (selector === sel) attempt(next)
+            if (selector === sel && sel.state === next) attempt(next)     // salvo que se haya elegido otra en el menú
         }
     }
 
@@ -396,6 +503,10 @@ object PlaybackController {
     }
 
     private fun mask(id: String) = AceStreamLink.masked(id)
+
+    private fun rows(sel: SourceSelector): List<SourceRow> = sel.order.mapIndexed { i, c ->
+        SourceRow(i, c.label, c.provider, c.qualityLabel, sel.statusOf(i), sel.failureOf(c.contentId)?.short)
+    }
 
     private const val STALL_MS = 20_000L
 }
