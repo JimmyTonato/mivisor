@@ -71,7 +71,6 @@ import com.mivisor.app.ui.shell.HelpDialog
 import com.mivisor.app.ui.shell.NavItem
 import com.mivisor.app.ui.shell.PreparingDialog
 import com.mivisor.app.ui.shell.ProbeDialog
-import com.mivisor.app.ui.shell.AceWatchedDialog
 import com.mivisor.app.ui.shell.ServicesPanelDialog
 import com.mivisor.app.ui.shell.Sidebar
 import com.mivisor.app.ui.theme.LocalAnimations
@@ -126,8 +125,6 @@ fun MiVisorApp(vm: MainViewModel) {
     var picker by remember { mutableStateOf<PickerState?>(null) }
     // Registro Ace Stream: última apertura Ace pendiente de "¿se ha visto?" al volver.
     var aceLaunched by remember { mutableStateOf<Triple<com.mivisor.app.model.Channel, Long, Boolean?>?>(null) }
-    var aceAsk by remember { mutableStateOf<Triple<com.mivisor.app.model.Channel, Long, Boolean?>?>(null) }
-    var aceAnswered by remember { mutableStateOf<Boolean?>(null) }
     var vpnVersion by remember { mutableIntStateOf(0) }
     val navFocus = remember { FocusRequester() }
 
@@ -162,7 +159,7 @@ fun MiVisorApp(vm: MainViewModel) {
     /** Registro Ace Stream: qué app abrió el canal y por qué, ID intacto, VPN, estado del motor. */
     fun logAceLaunch(request: PlayRequest) {
         val ch = request.channel
-        if (ch.kind != ChannelKind.ACE) return
+        if (ch.kind != ChannelKind.ACE || !launcher.preferences.aceDiagnostics) return
         val t = launcher.lastTrace ?: return
         val vpn = com.mivisor.app.diagnostics.NetState.vpnActive(context)
         val provider = library.provider(ch.providerId)
@@ -257,8 +254,7 @@ fun MiVisorApp(vm: MainViewModel) {
                         val now = System.currentTimeMillis()
                         val away = (now - at) / 1000
                         val vpnNow = com.mivisor.app.diagnostics.NetState.vpnActive(context)
-                        quick.afterAceReturn(at, now, away, vpnNow)
-                        if (com.mivisor.app.diagnostics.AceLog.shouldAsk(at, now)) { aceAnswered = null; aceAsk = Triple(ch, away, vpn) }
+                        if (launcher.preferences.aceDiagnostics) quick.afterAceReturn(at, now, away, vpnNow)
                     }
                     quick.onForeground()
                     vm.refreshStale()                 // canales: solo si la copia es vieja (la caché evita descargas)
@@ -456,19 +452,10 @@ fun MiVisorApp(vm: MainViewModel) {
                     launcher.preferences.forgetChannel(channel.name)
                     Toast.makeText(context, "Se volverá a preguntar con qué app abrirlo", Toast.LENGTH_SHORT).show()
                 },
-                onProbe = if (channel.kind == ChannelKind.ACE) {
+                // Comprobación con el motor (requiere Ace Premium): solo con el Registro Ace Stream activado.
+                onProbe = if (channel.kind == ChannelKind.ACE && launcher.preferences.aceDiagnostics) {
                     { optionsFor = null; probeChannel = channel; quick.probe(channel.name, channel.url) }
                 } else null
-            )
-        }
-
-        aceAsk?.let { (ch, away, vpn) ->
-            AceWatchedDialog(
-                channelName = ch.name, awaySeconds = away, vpnAtLaunch = vpn, answered = aceAnswered,
-                onYes = { quick.logAce(com.mivisor.app.diagnostics.AceLog.answer(true)); aceAsk = null },
-                // Sin comprobación por HTTP: en Ace para Android requiere Premium. Se explica qué probar.
-                onNo = { quick.logAce(com.mivisor.app.diagnostics.AceLog.answer(false)); aceAnswered = false },
-                onDismiss = { aceAsk = null; aceAnswered = null }
             )
         }
 

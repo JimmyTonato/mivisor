@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mivisor.app.R
 import com.mivisor.app.data.logos.ResolvedLogo
 import com.mivisor.app.ui.neon.Neon
@@ -35,7 +36,7 @@ import com.mivisor.app.ui.neon.Neon
  *    (sin red, 404, SVG…), se pinta el icono genérico de TV.
  */
 @Composable
-fun LogoBadge(urls: List<String>, width: Dp, height: Dp = width, modifier: Modifier = Modifier) {
+fun LogoBadge(urls: List<String>, width: Dp, height: Dp = width, modifier: Modifier = Modifier, fallbackText: String? = null) {
     val context = LocalContext.current
     val px = with(LocalDensity.current) { maxOf(width, height).roundToPx() }
     val candidates = urls.filter { it.isNotBlank() }.distinct()
@@ -62,6 +63,17 @@ fun LogoBadge(urls: List<String>, width: Dp, height: Dp = width, modifier: Modif
                 loaded, contentDescription = null, contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().padding(horizontal = width * 0.1f, vertical = height * 0.12f)
             )
+        } else if (!fallbackText.isNullOrBlank()) {
+            // Grupo sin logo de marca: su nombre, mejor que el logo de uno de sus canales.
+            Txt(
+                fallbackText.uppercase(),
+                androidx.compose.ui.text.TextStyle(
+                    color = Neon.Text, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                    fontSize = (height.value * 0.34f).coerceAtMost(14f).sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                ),
+                maxLines = 1, modifier = Modifier.padding(horizontal = 4.dp)
+            )
         } else {
             Icon(R.drawable.ic_tv, Neon.Dim, size = minOf(width, height) * 0.5f)
         }
@@ -73,10 +85,10 @@ fun LogoBadge(urls: List<String>, width: Dp, height: Dp = width, modifier: Modif
 fun ChannelLogoBadge(logo: ResolvedLogo, width: Dp, height: Dp = width, modifier: Modifier = Modifier) =
     LogoBadge(listOfNotNull(logo.channelLogo, logo.groupLogo), width, height, modifier)
 
-/** Atajo: grupo (solo su logo general → genérico). */
+/** Atajo: grupo (solo su logo de MARCA → su nombre en texto). Nunca el logo de uno de sus canales. */
 @Composable
 fun GroupLogoBadge(logo: ResolvedLogo, width: Dp, height: Dp = width, modifier: Modifier = Modifier) =
-    LogoBadge(listOfNotNull(logo.groupLogo), width, height, modifier)
+    LogoBadge(listOfNotNull(logo.groupLogo), width, height, modifier, fallbackText = logo.groupName)
 
 /** Placa clara para los logos (ligeramente gris para no deslumbrar en la TV). */
 private val LogoPlate = Color(0xFFF1F3F7)

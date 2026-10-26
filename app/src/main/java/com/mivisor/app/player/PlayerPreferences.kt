@@ -57,6 +57,14 @@ class PlayerPreferences(context: Context) {
         get() = prefs.getBoolean("import_ace_only", true)
         set(value) = prefs.edit().putBoolean("import_ace_only", value).apply()
 
+    /**
+     * Registro Ace Stream (diagnóstico): apunta cada apertura de un canal Ace y, con el permiso READ_LOGS, lo que Ace
+     * escribió en el log del sistema. Desactivado por defecto: se activa solo cuando haya un problema que revisar.
+     */
+    var aceDiagnostics: Boolean
+        get() = prefs.getBoolean("diag_ace", false)
+        set(value) = prefs.edit().putBoolean("diag_ace", value).apply()
+
     /** Iniciar Ace Stream al abrir MiVisor. */
     var aceAutoStart: Boolean
         get() = prefs.getBoolean("svc_ace_auto", false)

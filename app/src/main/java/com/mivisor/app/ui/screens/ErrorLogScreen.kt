@@ -59,6 +59,8 @@ fun ErrorLogScreen(onBack: () -> Unit) {
     var selected by remember { mutableStateOf<String?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
     var aceLogsHelp by remember { mutableStateOf(false) }
+    val prefs = remember { com.mivisor.app.player.PlayerPreferences(context) }
+    var aceDiag by remember { mutableStateOf(prefs.aceDiagnostics) }
     val current = reports.firstOrNull { it.name == selected } ?: reports.firstOrNull()
     val text = remember(current?.name, reload) { current?.let { runCatching { it.readText() }.getOrNull() }.orEmpty() }
 
@@ -76,8 +78,22 @@ fun ErrorLogScreen(onBack: () -> Unit) {
                 NeonButton("Borrar registro", { confirmClear = true }, icon = R.drawable.ic_delete)
             }
             NeonButton("Actualizar", { reload++ }, icon = R.drawable.ic_refresh)
+            // Registro Ace Stream: solo cuando haya algo que revisar (desactivado por defecto).
             NeonButton(
-                if (com.mivisor.app.diagnostics.AceSysLog.granted(context)) "Logs internos de Ace: activados" else "Logs internos de Ace",
+                if (aceDiag) "Registro Ace Stream: ACTIVADO" else "Registro Ace Stream: desactivado",
+                {
+                    aceDiag = !aceDiag
+                    prefs.aceDiagnostics = aceDiag
+                    android.widget.Toast.makeText(
+                        context,
+                        if (aceDiag) "Se anotará cada canal Ace que abras. Pásalo con «Ver en el móvil»." else "Registro Ace Stream desactivado",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                },
+                icon = R.drawable.ic_bolt, selected = aceDiag
+            )
+            if (aceDiag) NeonButton(
+                if (com.mivisor.app.diagnostics.AceSysLog.granted(context)) "Logs internos de Ace: con permiso" else "Logs internos de Ace",
                 { aceLogsHelp = true }, icon = R.drawable.ic_bolt
             )
             NeonButton("Olvidar apps recordadas", {

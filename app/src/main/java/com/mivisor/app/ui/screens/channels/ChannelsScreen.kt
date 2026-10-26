@@ -359,7 +359,11 @@ private fun GroupCard(group: ChannelGroup, logo: ResolvedLogo, perProvider: Bool
                 ChannelLogoBadge(logo, 56.dp, 32.dp)
                 Box(Modifier.weight(1f))
                 val n = group.sources.size
-                if (n > 1) CountBadge(if (perProvider) "$n canales" else "$n fuentes")
+                val v = group.variants.size
+                when {
+                    v > 1 -> CountBadge("$v canales · $n fuentes")
+                    n > 1 -> CountBadge("$n fuentes")
+                }
             }
             Txt(group.name, Ui.CardTitle.copy(fontSize = 14.sp), modifier = Modifier.padding(top = 6.dp))
             Box(Modifier.weight(1f))
@@ -412,14 +416,38 @@ fun ChannelGroupScreen(
 
     Row(Modifier.fillMaxSize().padding(start = if (layout.compact) layout.gutter else 6.dp, end = layout.gutter), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         Column(Modifier.weight(1f).fillMaxHeight()) {
-            PageHeader(group.name, "${group.sources.size} fuentes disponibles para este canal.", back = backLabel to onBack)
+            val variants = group.variants
+            PageHeader(
+                group.name,
+                if (variants.size > 1) "${variants.size} canales · ${group.sources.size} fuentes. Cada fuente muestra su nombre original y su proveedor."
+                else "${group.sources.size} fuentes disponibles para este canal.",
+                back = backLabel to onBack
+            )
             LazyColumn(
                 Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                itemsIndexed(group.sources, key = { i, s -> "${s.channel.id}_$i" }) { index, source ->
-                    SourceRow(source, { onPlay(source.channel) }, { onOptions(source.channel) }, if (index == 0) Modifier.focusRequester(first) else Modifier)
+                val firstSource = group.sources.first()
+                for (variant in variants) {
+                    // Cabecera de la variante ("DAZN LaLiga 2" con su logo) solo si hay más de una.
+                    if (variants.size > 1) item(key = "var:${variant.key}") {
+                        val vLogo = remember(variant.key, logos) { logos.resolve(variant.name, variant.sources.first().channel.group) }
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = if (variant === variants.first()) 0.dp else 10.dp, bottom = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ChannelLogoBadge(vLogo, 48.dp, 28.dp)
+                            Box(Modifier.width(10.dp))
+                            Txt(variant.name, NeonType.H3)
+                            Box(Modifier.width(8.dp))
+                            Txt("${variant.sources.size} ${if (variant.sources.size == 1) "fuente" else "fuentes"}", NeonType.Small, color = Neon.Faint)
+                        }
+                    }
+                    itemsIndexed(variant.sources, key = { i, s -> "${variant.key}_${s.channel.id}_$i" }) { _, source ->
+                        SourceRow(source, { onPlay(source.channel) }, { onOptions(source.channel) },
+                            if (source === firstSource) Modifier.focusRequester(first) else Modifier)
+                    }
                 }
             }
         }
@@ -449,6 +477,7 @@ fun ChannelGroupScreen(
                     Txt("Canal agrupado", NeonType.Small)
                 }
                 Column(Modifier.fillMaxWidth().padding(top = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (group.variants.size > 1) InfoLine(R.drawable.ic_tv, "Canales", "${group.variants.size}")
                     InfoLine(R.drawable.ic_layers, "Fuentes", "${group.sources.size} disponibles")
                     InfoLine(R.drawable.ic_tv, "Mejor calidad", group.bestQuality?.label ?: "—")
                     InfoLine(R.drawable.ic_clock, "Actualizado", updated?.let { relativeTime(it) } ?: "—")

@@ -228,15 +228,19 @@ def build_catalog(brands: Brands, previous: Optional[Mapping[str, Any]], now: da
         if not e["group"]:
             e.pop("group", None)
 
-    # Grupos: logo propio → logo manual → logo de su canal "insignia".
+    # Grupos: logo propio → logo manual → logo de la MARCA (un canal que se llame como la marca, p. ej. "DAZN").
+    # Nunca el de un canal numerado ("DAZN 1"): si no, los canales sin logo heredarían el logo de otro canal.
+    numbered_logos = {e.get("logo") for e in channels.values() if re.search(r"\d", e.get("name") or "")}
     groups: dict[str, dict] = {}
     manual_groups = {norm_text(k): v for k, v in ((manual or {}).get("groups") or {}).items() if v}
     for key, g in brands.groups.items():
         logo, source = g["logo"] or manual_groups.get(norm_text(g["name"])) or manual_groups.get(key), "manual"
         if not logo:
-            for flag in g["flagship"]:
+            for flag in [g["name"], *g["flagship"]]:
+                if re.search(r"\d", flag):
+                    continue
                 e = channels.get(channel_key(flag))
-                if e and e.get("logo"):
+                if e and e.get("logo") and e["logo"] not in numbered_logos:
                     logo, source = e["logo"], e.get("source")
                     break
         groups[key] = {"name": g["name"], "aliases": g["aliases"], **({"logo": logo, "source": source} if logo else {})}

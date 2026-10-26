@@ -93,9 +93,17 @@ class CatalogTest(unittest.TestCase):
         self.assertNotIn("vector", ch)                                                           # SVG fuera
         # Grupo: logo general (de su canal insignia), distinto del de cada canal.
         self.assertEqual(cat["groups"]["movistar"]["logo"], "https://iptv/mplus.png")
-        self.assertEqual(cat["groups"]["dazn"]["logo"], "https://iptv/dazn1.png")
+        self.assertNotIn("logo", cat["groups"]["dazn"])                    # "DAZN 1" no es el logo de la marca
         self.assertNotIn("logo", cat["groups"]["tennischannel"])
         self.assertIn("m+", cat["groups"]["movistar"]["aliases"])
+
+    def test_group_logo_is_brand_never_numbered_channel(self):
+        iptv = {"dazn 1": {"name": "DAZN 1", "logo": "https://iptv/dazn1.png", "group": "dazn", "source": "iptv-org"},
+                "dazn": {"name": "DAZN", "logo": "https://iptv/dazn-brand.png", "group": "dazn", "source": "iptv-org"}}
+        cat = build_catalog(brands(), None, NOW, [], {"dazn 1": iptv["dazn 1"]}, None, {})
+        self.assertNotIn("logo", cat["groups"]["dazn"])                    # solo hay DAZN 1: el grupo queda sin logo
+        cat = build_catalog(brands(), None, NOW, [], iptv, None, {})
+        self.assertEqual(cat["groups"]["dazn"]["logo"], "https://iptv/dazn-brand.png")
 
     def test_manual_wins_and_cache_is_kept(self):
         manual = {"channels": {"DAZN F1": "https://mine/f1.png"}, "groups": {"DAZN": "https://mine/dazn.png"}}

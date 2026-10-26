@@ -202,12 +202,13 @@ class RedesignTest {
                 Triple("arena", "Arena", listOf(ch("DAZN 1", "acestream://c"), ch("dazn 1 fhd", "acestream://a")))   // enlace repetido
             )
         )
-        val dazn1 = groups.first { it.name == "DAZN 1" }
+        val dazn1 = groups.first { it.key == "dazn" }                          // canal "DAZN" → variante "DAZN 1"
+        assertEquals(listOf("DAZN 1"), dazn1.variants.map { it.name })
         assertEquals(3, dazn1.sources.size)                                      // "3 fuentes"; el enlace repetido cuenta una vez
         assertEquals(listOf("DAZN", "Orange", "Arena"), dazn1.providers)
         assertEquals(Quality.FHD, dazn1.bestQuality)
         assertEquals("DAZN", dazn1.first.providerName)                          // mejor calidad primero
-        assertEquals(listOf("DAZN 1", "DAZN F1", "Teledeporte"), groups.map { it.name })
+        assertEquals(listOf("DAZN", "DAZN F1", "Teledeporte"), groups.map { it.name })
         assertEquals(1, dazn1.only("orange")?.sources?.size)
         assertNull(dazn1.only("nadie"))
     }

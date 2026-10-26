@@ -35,7 +35,10 @@ class AceLogTest {
         channels.forEach { assertEquals(it.url.removePrefix("acestream://"), AceStreamLink.contentId(it.url)) }
         // Ningún canal distinto se fusiona con otro (DAZN LaLiga ≠ Movistar LaLiga, Movistar Deportes ≠ … 2).
         val groups = ChannelGrouping.group(listOf(Triple("p", "P", channels)))
-        assertEquals(11, groups.size)
+        // 8 canales y 11 variantes: "DAZN 1"/"DAZN 2", "DAZN LaLiga"/"… 2" y "Movistar Deportes"/"… 2" van juntos,
+        // pero como variantes distintas (nunca se mezclan sus fuentes).
+        assertEquals(8, groups.size)
+        assertEquals(11, groups.sumOf { it.variants.size })
         assertEquals("DAZN", channels.first { it.name == "DAZN 1" }.group)
     }
 

@@ -110,6 +110,30 @@ class ChannelLogosTest {
         assertEquals(listOf("Primera Federación (RFEF)"), sections.last().items.map { it.first })
     }
 
+    /** Caso de la captura: el catálogo traía el logo de "DAZN 1" como logo del grupo DAZN. */
+    @Test fun numberedChannelLogoIsNeverTheGroupLogo() {
+        val json = """{"version":1,"groups":{"dazn":{"name":"DAZN","aliases":["dazn"],"logo":"https://iptv/dazn1.png"},
+            "movistar":{"name":"Movistar Plus+","aliases":["movistar","m+"],"logo":"https://iptv/mplus.png"}},
+          "channels":{"dazn 1":{"name":"DAZN 1","logo":"https://iptv/dazn1.png","group":"dazn","source":"iptv-org"},
+            "dazn f1":{"name":"DAZN F1","logo":"https://iptv/daznf1.png","group":"dazn","source":"iptv-org"},
+            "movistar":{"name":"Movistar Plus+","logo":"https://iptv/mplus.png","group":"movistar","source":"iptv-org"}}}"""
+        val res = ChannelLogoResolver(LogoCatalog.parse(json))
+        val motogp = res.resolve("DAZN MotoGP")
+        assertEquals("dazn", motogp.groupKey)
+        assertNull(motogp.groupLogo)                        // no hereda el logo de DAZN 1
+        assertNull(motogp.best)                             // → nombre del grupo / icono genérico
+        assertEquals("https://iptv/dazn1.png", res.resolve("DAZN 1").channelLogo)   // DAZN 1 sí conserva el suyo
+        assertEquals("https://iptv/daznf1.png", res.resolve("DAZN F1").best)
+        // El logo de la marca (canal que se llama como el grupo, sin número) sí vale.
+        assertEquals("https://iptv/mplus.png", res.resolve("M+ LaLiga").groupLogo)
+    }
+
+    @Test fun deletedImagePlaceholderIsNotALogo() {
+        assertTrue(LogoCatalog.isPlaceholder("https://i.imgur.com/removed.png"))
+        assertFalse(LogoCatalog.isPlaceholder("https://i.imgur.com/abc123.png"))
+        assertFalse(LogoCatalog.isPlaceholder(null))
+    }
+
     @Test fun builtinGroupsMatchTheCatalogDefinition() {
         val file = generateSequence(File(System.getProperty("user.dir")).absoluteFile) { it.parentFile }
             .map { File(it, "tools/agenda/channel_brands.json") }.firstOrNull { it.isFile } ?: return

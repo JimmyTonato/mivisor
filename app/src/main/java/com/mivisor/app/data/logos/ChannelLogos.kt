@@ -58,6 +58,12 @@ class LogoCatalog(val groups: List<LogoGroup>, val channels: List<LogoEntry>, va
             return LogoCatalog(groups + BuiltinGroups.ALL.filter { it.key !in known }, channels, root.str("updated"))
         }
 
+        /** Imagen de aviso de un servidor (logo borrado) en lugar del logo: Imgur redirige a /removed.png. */
+        fun isPlaceholder(finalUrl: String?): Boolean {
+            val path = finalUrl?.substringBefore('?')?.lowercase() ?: return false
+            return path.endsWith("/removed.png") || path.endsWith("/removed.jpg") || path.contains("/image-not-found")
+        }
+
         /** Solo imágenes https que el cargador sabe dibujar (no SVG). */
         fun usable(url: String?): Boolean =
             url != null && url.startsWith("https://") && !url.substringBefore('?').lowercase().endsWith(".svg")
@@ -108,6 +114,12 @@ class ChannelLogoResolver(private val catalog: LogoCatalog, extra: List<LogoEntr
         }
     }
 
+    /**
+     * Logos de canales NUMERADOS ("DAZN 1"). Nunca valen como logo de grupo: si no, "DAZN MotoGP" (sin logo propio)
+     * heredaría el de DAZN 1 y parecería DAZN 1. También filtra catálogos ya descargados con ese fallo.
+     */
+    private val numberedLogos: Set<String> = (catalog.channels + extra).filter { e -> e.name.any(Char::isDigit) }.map { it.logo }.toSet()
+
     private val memo = HashMap<String, ResolvedLogo>()
 
     val groups: List<LogoGroup> get() = catalog.groups
@@ -119,10 +131,14 @@ class ChannelLogoResolver(private val catalog: LogoCatalog, extra: List<LogoEntr
      */
     @Synchronized
     fun resolve(name: String, listGroup: String? = null): ResolvedLogo = memo.getOrPut("$name\u0000${listGroup.orEmpty()}") {
-        val entry = channelIndex[channelKey(name)]
+        // Variante exacta ("DAZN LaLiga 2") → el canal sin número ("DAZN LaLiga"), sin coger nunca el logo de
+        // OTRA variante numerada (DAZN 4 no toma el de DAZN 1).
+        val canon = com.mivisor.app.data.ChannelCanon.parse(name)
+        val entry = channelIndex[canon.variantKey]
+            ?: channelIndex[canon.baseKey]?.takeIf { canon.baseKey != canon.variantKey && it.logo !in numberedLogos }
         val groupKey = groupOf(name) ?: entry?.group?.takeIf { it in groupsByKey } ?: listGroup?.let { groupOf(it) }
         val group = groupsByKey[groupKey]
-        ResolvedLogo(entry?.logo, group?.key, group?.name, group?.logo ?: flagshipLogo(group))
+        ResolvedLogo(entry?.logo, group?.key, group?.name, group?.logo?.takeIf { it !in numberedLogos } ?: flagshipLogo(group))
     }
 
     /** Grupo cuyo alias es el PRINCIPIO del nombre: "DAZN LaLiga" → dazn, "M+ LaLiga" → movistar. */
@@ -132,9 +148,12 @@ class ChannelLogoResolver(private val catalog: LogoCatalog, extra: List<LogoEntr
         return groupAliases.firstOrNull { (alias, _) -> tokens.size >= alias.size && tokens.subList(0, alias.size) == alias }?.second
     }
 
-    /** Si el catálogo no trae logo del grupo: el de un canal que se llame como el grupo ("DAZN", "Eurosport"). */
+    /** Si el catálogo no trae logo del grupo: el de un canal que se llame como la MARCA ("DAZN", "Eurosport"), nunca "DAZN 1". */
     private fun flagshipLogo(group: LogoGroup?): String? =
-        group?.let { g -> (listOf(g.name) + g.aliases).firstNotNullOfOrNull { channelIndex[channelKey(it)]?.logo } }
+        group?.let { g ->
+            (listOf(g.name) + g.aliases).filterNot { n -> n.any(Char::isDigit) }
+                .firstNotNullOfOrNull { channelIndex[channelKey(it)]?.logo?.takeIf { logo -> logo !in numberedLogos } }
+        }
 
     companion object {
         /** Igual que MiVisor agrupa canales (sin calidad, con alias M+ = Movistar). */

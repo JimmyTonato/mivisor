@@ -60,7 +60,9 @@ object ImageLoader {
     }
 
     private fun download(context: Context, url: String): File? {
-        val dir = File(context.cacheDir, "img").apply { mkdirs() }
+        // "img2": la caché anterior podía guardar la imagen de aviso de Imgur ("removed.png") bajo la URL del logo.
+        runCatching { File(context.cacheDir, "img").takeIf { it.isDirectory }?.deleteRecursively() }
+        val dir = File(context.cacheDir, "img2").apply { mkdirs() }
         val file = File(dir, sha1(url))
         if (file.isFile && file.length() > 0) return file
         return try {
@@ -70,6 +72,9 @@ object ImageLoader {
                 connection.readTimeout = 8_000
                 connection.setRequestProperty("User-Agent", "MiVisor/4")
                 if (connection.responseCode != 200) return null
+                // Imagen borrada: el servidor redirige a su imagen de aviso ("The image you are requesting does not
+                // exist…"). Eso NO es un logo: se trata como fallo y se pinta el respaldo.
+                if (com.mivisor.app.data.logos.LogoCatalog.isPlaceholder(connection.url?.toString())) return null
                 val tmp = File(dir, file.name + ".tmp")
                 connection.inputStream.use { input ->
                     tmp.outputStream().use { out ->

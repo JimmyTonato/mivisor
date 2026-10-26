@@ -13,18 +13,33 @@ class ChannelSource(
     val channel: Channel,
     val providerId: String,
     val providerName: String,
-    val quality: Quality?
+    val quality: Quality?,
+    /** Variante a la que pertenece ("DAZN LaLiga 2") y su clave; el nombre original sigue en [channel]. */
+    val variantName: String = channel.name,
+    val variantKey: String = channel.name.lowercase(),
+    val number: Int? = null
 )
 
+/** Una variante del canal ("DAZN LaLiga 2") con todas sus fuentes. */
+class ChannelVariant(val key: String, val name: String, val number: Int?, val sources: List<ChannelSource>)
+
 /**
- * Canal agrupado: "DAZN 1" aunque llegue como "DAZN 1 FHD" de un proveedor y "DAZN 1 HD" de otro.
- * [sources] nunca está vacío y no repite enlaces.
+ * Canal agrupado: "DAZN LaLiga" con todo lo que coincide con él, venga como venga escrito
+ * ("DAZN LaLiga Elcano …889", "ES: DAZN LALIGA New Loop", "DAZN LaLiga 2"…).
+ * Dentro, sus [variants] ("DAZN LaLiga", "DAZN LaLiga 2"), cada una con sus fuentes.
+ * [sources] nunca está vacío, no repite enlaces y va ordenado por variante y calidad.
  */
 class ChannelGroup(
     val key: String,
     val name: String,
     val sources: List<ChannelSource>
 ) {
+    /** Variantes en orden: sin número primero, luego 1, 2, 3…; a igualdad, por orden de aparición. */
+    val variants: List<ChannelVariant> by lazy {
+        sources.groupBy { it.variantKey }.values.map { list ->
+            ChannelVariant(list.first().variantKey, ChannelGrouping.bestDisplay(list.map { it.variantName }), list.first().number, list)
+        }.sortedBy { it.number ?: 0 }
+    }
     val providers: List<String> get() = sources.map { it.providerName }.distinct()
     val bestQuality: Quality? get() = sources.mapNotNull { it.quality }.maxByOrNull { it.rank }
     val initials: String get() = CatalogBuilder.initialsOf(name)
@@ -61,8 +76,7 @@ object ChannelGrouping {
      * es decir sin calidad, alias (M+ = Movistar) y en minúsculas. Los números se conservan:
      * "DAZN 1" y "DAZN 2" son canales distintos.
      */
-    fun key(name: String): String =
-        ChannelMatcher.tokens(name).joinToString(" ").ifEmpty { name.trim().lowercase() }
+    fun key(name: String): String = ChannelCanon.parse(name).variantKey.ifEmpty { name.trim().lowercase() }
 
     /** "DAZN 1 FHD [ES]" → "DAZN 1". Respeta mayúsculas originales. */
     fun cleanName(name: String): String {
@@ -76,30 +90,41 @@ object ChannelGrouping {
     }
 
     /**
-     * Agrupa los canales de todos los proveedores. El orden es el de aparición (orden de proveedores y de su lista).
-     * Mismo enlace en dos proveedores = una sola fuente (la del primero).
+     * Agrupa los canales de todos los proveedores por su nombre REAL ([ChannelCanon]): todo lo que coincide con
+     * "DAZN LaLiga" va a ese canal, con sus variantes ("DAZN LaLiga 2") dentro. El orden es el de aparición.
+     * Mismo enlace en dos proveedores = una sola fuente (la del primero). Los enlaces no se tocan.
      */
     fun group(providers: List<Triple<String, String, List<Channel>>>): List<ChannelGroup> {
+        val providerNames = providers.map { it.second }
         val order = LinkedHashMap<String, MutableList<ChannelSource>>()
         val names = HashMap<String, MutableList<String>>()
         val seenUrls = HashSet<String>()
         for ((providerId, providerName, channels) in providers) {
             for (channel in channels) {
                 if (!seenUrls.add(channel.url.trim())) continue
-                val k = key(channel.name)
-                order.getOrPut(k) { ArrayList() } += ChannelSource(channel, providerId, providerName, quality(channel.name))
-                names.getOrPut(k) { ArrayList() } += cleanName(channel.name)
+                val canon = ChannelCanon.parse(channel.name, providerNames)
+                order.getOrPut(canon.baseKey) { ArrayList() } +=
+                    ChannelSource(channel, providerId, providerName, quality(channel.name), canon.variantName, canon.variantKey, canon.number)
+                names.getOrPut(canon.baseKey) { ArrayList() } += canon.baseName
             }
         }
         return order.map { (k, sources) ->
-            ChannelGroup(k, bestName(names[k].orEmpty()), sources.sortedByDescending { it.quality?.rank ?: 0 })
+            val variantOrder = sources.map { it.variantKey }.distinct().sortedBy { vk -> sources.first { it.variantKey == vk }.number ?: 0 }
+            ChannelGroup(
+                k, bestDisplay(names[k].orEmpty()),
+                sources.sortedWith(compareBy<ChannelSource> { variantOrder.indexOf(it.variantKey) }.thenByDescending { it.quality?.rank ?: 0 })
+            )
         }
     }
 
-    /** El nombre limpio más repetido; a igualdad, el más corto ("DAZN 1" antes que "DAZN 1 ES"). */
-    private fun bestName(candidates: List<String>): String =
+    /** Escritura más repetida; a igualdad, la que tiene más mayúsculas iniciales y luego la más corta. */
+    fun bestDisplay(candidates: List<String>): String =
         candidates.groupingBy { it }.eachCount().entries
-            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key.length })
+            .sortedWith(
+                compareByDescending<Map.Entry<String, Int>> { it.value }
+                    .thenByDescending { e -> e.key.count { c -> c.isUpperCase() } > 0 && e.key != e.key.uppercase() }
+                    .thenBy { it.key.length }
+            )
             .firstOrNull()?.key ?: "Canal"
 
     private fun words(name: String): List<String> =

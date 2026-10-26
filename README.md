@@ -397,9 +397,26 @@ Nunca da por bueno un canal solo porque Ace Stream se abra. El Content ID se env
 **Ajustes → Registro de errores → Última apertura de canal** (intent, paquete destino, URI enmascarada) sirve para comparar
 con la app antigua: ambas mandan el mismo `Intent(VIEW, acestream://…)` + NEW_TASK sin extras ni MIME.
 
+## Canales agrupados: canal → variantes → fuentes
+
+`data/ChannelCanon.kt` saca el nombre REAL de cada entrada de las listas y todo lo que coincide va al mismo canal:
+quita el proveedor añadido detrás ("DAZN 1 Elcano"), etiquetas de lista (New Loop, New Era VI, Spain, ES:, shickat…),
+fragmentos de ID ("…398"), calidad, país/versión (DE, Italia, BAR) y lo que va tras "-->"; unifica Moto GP = MotoGP,
+La Liga = LaLiga, Fórmula 1 = F1, M+ = Movistar Plus+ = Movistar.
+
+- **Grupo** (Movistar, DAZN…): cabecera con el logo de la marca.
+- **Canal** ("DAZN LaLiga"): una tarjeta, "2 canales · 7 fuentes".
+- **Variantes** dentro ("DAZN LaLiga", "DAZN LaLiga 2"): cada una con su logo y sus fuentes; nunca se mezclan.
+  Cada fuente muestra su nombre original y su proveedor. Los enlaces no se tocan.
+- Logo de cada variante: el suyo → el del canal sin número → el de la marca. Nunca el de otra variante (DAZN 4 no toma
+  el de DAZN 1).
+
 ## Logos de grupos y canales
 
 Solo metadatos visuales: no tocan los enlaces Ace Stream ni la reproducción. Sin logo, el canal funciona igual.
+
+**Logo de grupo = logo de la MARCA** (DAZN, Movistar Plus+…), nunca el de un canal numerado como "DAZN 1"; si no hay,
+la cabecera muestra el nombre del grupo. Las imágenes de aviso de logos borrados (Imgur `removed.png`) no cuentan como logo.
 
 **Dos niveles**: el **grupo** (Movistar, DAZN, Eurosport, LaLiga TV, Tennis Channel…) tiene su logo general y cada
 **canal** (M+ LaLiga, DAZN F1…) el suyo. En cada canal: logo propio → logo del grupo → icono genérico de TV.
@@ -438,7 +455,8 @@ El Registro Ace Stream muestra "Origen de la lista" (respuestas de cada servidor
 
 ## Registro Ace Stream
 
-**Ajustes → Registro de errores → Registro Ace Stream** (`diagnostics/AceLog.kt`, últimas 40 aperturas). MiVisor no puede leer
+**Desactivado por defecto.** Se activa en **Ajustes → Registro de errores → "Registro Ace Stream"** cuando haya algún
+problema que revisar, y se pasa con "Ver en el móvil (QR)" (`diagnostics/AceLog.kt`, últimas 40 aperturas). MiVisor no puede leer
 el log interno de Ace Stream (Android solo lo permite con ADB), así que guarda todo lo que sí ve en cada apertura de un canal Ace:
 
 - canal, proveedor y **grupo**; Content ID enmascarado y si llega intacto a Ace;
@@ -447,8 +465,7 @@ el log interno de Ace Stream (Android solo lo permite con ADB), así que guarda 
 - apps instaladas que abren `acestream://` y la predeterminada del sistema;
 - VPN del proveedor y **VPN activa en la TV**; estado del motor antes de abrir;
 - estado de WARP y si "Conectar VPN al abrir MiVisor" está activado;
-- al volver a MiVisor: cuánto tardaste, estado del motor y si sigue la VPN. Si vuelves en menos de 10 min pregunta
-  **"¿Se ha visto el canal?"** y, si no, explica qué probar (p. ej. sin VPN cuando Ace muestra Helping 0 / DL 0).
+- al volver a MiVisor: cuánto tardaste, estado del motor y si sigue la VPN (sin preguntas ni avisos).
 
 Nota: la "Comprobación con el motor" usa la API HTTP de Ace (`/ace/getstream`), que en Ace Stream para Android **requiere
 Premium** ("To continue, you need to activate premium"). Sin Premium se indica así y no se toma como fallo del canal;
